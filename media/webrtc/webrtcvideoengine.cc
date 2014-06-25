@@ -51,6 +51,7 @@
 #include "talk/media/base/videocapturer.h"
 #include "talk/media/base/videorenderer.h"
 #include "talk/media/devices/filevideocapturer.h"
+#include "talk/media/webrtc/constants.h"
 #include "talk/media/webrtc/webrtcpassthroughrender.h"
 #include "talk/media/webrtc/webrtctexturevideoframe.h"
 #include "talk/media/webrtc/webrtcvideocapturer.h"
@@ -66,23 +67,25 @@
 
 namespace cricket {
 
+// Constants defined in talk/media/webrtc/constants.h
+// TODO(pbos): Move these to a separate constants.cc file.
+const int kVideoMtu = 1200;
+const int kVideoRtpBufferSize = 65536;
+
+const char kVp8CodecName[] = "VP8";
+
+const int kDefaultFramerate = 30;
+const int kMinVideoBitrate = 50;
+const int kStartVideoBitrate = 300;
+const int kMaxVideoBitrate = 2000;
+
+const int kCpuMonitorPeriodMs = 2000;  // 2 seconds.
+
 
 static const int kDefaultLogSeverity = talk_base::LS_WARNING;
 
-static const int kMinVideoBitrate = 50;
-static const int kStartVideoBitrate = 300;
-static const int kMaxVideoBitrate = 2000;
-
 // Controlled by exp, try a super low minimum bitrate for poor connections.
 static const int kLowerMinBitrate = 30;
-
-static const int kVideoMtu = 1200;
-
-static const int kVideoRtpBufferSize = 65536;
-
-static const char kVp8PayloadName[] = "VP8";
-static const char kRedPayloadName[] = "red";
-static const char kFecPayloadName[] = "ulpfec";
 
 static const int kDefaultNumberOfTemporalLayers = 1;  // 1:1
 
@@ -128,8 +131,6 @@ static int SeverityToFilter(int severity) {
   }
   return filter;
 }
-
-static const int kCpuMonitorPeriodMs = 2000;  // 2 seconds.
 
 static const bool kNotSending = false;
 
@@ -585,9 +586,9 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
         video_capturer_(NULL),
         encoder_observer_(channel_id),
         external_capture_(external_capture),
-        capturer_updated_(false),
         interval_(0),
-        cpu_monitor_(cpu_monitor) {
+        cpu_monitor_(cpu_monitor),
+        old_adaptation_changes_(0) {
   }
 
   int channel_id() const { return channel_id_; }
@@ -624,11 +625,16 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
   int64 interval() { return interval_; }
 
   int CurrentAdaptReason() const {
-    const CoordinatedVideoAdapter* adapter = video_adapter();
-    if (!adapter) {
+    if (!video_adapter()) {
       return CoordinatedVideoAdapter::ADAPTREASON_NONE;
     }
     return video_adapter()->adapt_reason();
+  }
+  int AdaptChanges() const {
+    if (!video_adapter()) {
+      return old_adaptation_changes_;
+    }
+    return old_adaptation_changes_ + video_adapter()->adaptation_changes();
   }
 
   StreamParams* stream_params() { return stream_params_.get(); }
@@ -654,6 +660,8 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
 
     CoordinatedVideoAdapter* old_video_adapter = video_adapter();
     if (old_video_adapter) {
+      // Get adaptation changes from old video adapter.
+      old_adaptation_changes_ += old_video_adapter->adaptation_changes();
       // Disconnect signals from old video adapter.
       SignalCpuAdaptationUnable.disconnect(old_video_adapter);
       if (cpu_monitor_) {
@@ -661,7 +669,6 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
       }
     }
 
-    capturer_updated_ = true;
     video_capturer_ = video_capturer;
 
     vie_wrapper->base()->RegisterCpuOveruseObserver(channel_id_, NULL);
@@ -816,21 +823,21 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
 
   WebRtcLocalStreamInfo local_stream_info_;
 
-  bool capturer_updated_;
-
   int64 interval_;
 
   talk_base::CpuMonitor* cpu_monitor_;
   talk_base::scoped_ptr<WebRtcOveruseObserver> overuse_observer_;
+
+  int old_adaptation_changes_;
 
   VideoOptions video_options_;
 };
 
 const WebRtcVideoEngine::VideoCodecPref
     WebRtcVideoEngine::kVideoCodecPrefs[] = {
-    {kVp8PayloadName, 100, -1, 0},
-    {kRedPayloadName, 116, -1, 1},
-    {kFecPayloadName, 117, -1, 2},
+    {kVp8CodecName, 100, -1, 0},
+    {kRedCodecName, 116, -1, 1},
+    {kUlpfecCodecName, 117, -1, 2},
     {kRtxCodecName, 96, 100, 3},
 };
 
@@ -1444,7 +1451,7 @@ bool WebRtcVideoEngine::RebuildCodecList(const VideoCodec& in_codec) {
       VideoCodec codec(pref.payload_type, pref.name,
                        in_codec.width, in_codec.height, in_codec.framerate,
                        static_cast<int>(ARRAY_SIZE(kVideoCodecPrefs) - i));
-      if (_stricmp(kVp8PayloadName, codec.name.c_str()) == 0) {
+      if (_stricmp(kVp8CodecName, codec.name.c_str()) == 0) {
         AddDefaultFeedbackParams(&codec);
       }
       if (pref.associated_payload_type != -1) {
@@ -1705,9 +1712,9 @@ bool WebRtcVideoMediaChannel::SetSendCodecs(
   bool remb_enabled = remb_enabled_;
   for (std::vector<VideoCodec>::const_iterator iter = codecs.begin();
       iter != codecs.end(); ++iter) {
-    if (_stricmp(iter->name.c_str(), kRedPayloadName) == 0) {
+    if (_stricmp(iter->name.c_str(), kRedCodecName) == 0) {
       send_red_type_ = iter->id;
-    } else if (_stricmp(iter->name.c_str(), kFecPayloadName) == 0) {
+    } else if (_stricmp(iter->name.c_str(), kUlpfecCodecName) == 0) {
       send_fec_type_ = iter->id;
     } else if (_stricmp(iter->name.c_str(), kRtxCodecName) == 0) {
       int rtx_type = iter->id;
@@ -2505,6 +2512,7 @@ bool WebRtcVideoMediaChannel::GetStats(const StatsOptions& options,
             send_codec_->maxBitrate, kMaxVideoBitrate);
       }
       sinfo.adapt_reason = send_channel->CurrentAdaptReason();
+      sinfo.adapt_changes = send_channel->AdaptChanges();
 
 #ifdef USE_WEBRTC_DEV_BRANCH
       webrtc::CpuOveruseMetrics metrics;
@@ -3260,7 +3268,7 @@ bool WebRtcVideoMediaChannel::SendFrame(
   }
   const VideoFrame* frame_out = frame;
   talk_base::scoped_ptr<VideoFrame> processed_frame;
-  // Disable muting for screencast.
+  // TODO(hellner): Remove the need for disabling mute when screencasting.
   const bool mute = (send_channel->muted() && !is_screencast);
   send_channel->ProcessFrame(*frame_out, mute, processed_frame.use());
   if (processed_frame) {
@@ -3766,7 +3774,6 @@ bool WebRtcVideoMediaChannel::SetSendCodec(
   return true;
 }
 
-
 static std::string ToString(webrtc::VideoCodecComplexity complexity) {
   switch (complexity) {
     case webrtc::kComplexityNormal:
@@ -3871,7 +3878,7 @@ bool WebRtcVideoMediaChannel::SetReceiveCodecs(
         // We currently only support RTX associated with VP8 due to limitations
         // in webrtc where only one RTX payload type can be registered.
         valid_apt = codec_it != pt_to_codec.end() &&
-            _stricmp(codec_it->second->plName, kVp8PayloadName) == 0;
+            _stricmp(codec_it->second->plName, kVp8CodecName) == 0;
       }
       if (!valid_apt) {
         LOG(LS_ERROR) << "The RTX codec isn't associated with a known and "
