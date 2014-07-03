@@ -539,6 +539,11 @@ class FakeWebRtcVoiceEngine
 #ifdef USE_WEBRTC_DEV_BRANCH
   WEBRTC_FUNC(SetFECStatus, (int channel, bool enable)) {
     WEBRTC_CHECK_CHANNEL(channel);
+    if (strcmp(channels_[channel]->send_codec.plname, "opus")) {
+      // Return -1 if current send codec is not Opus.
+      // TODO(minyue): Excludes other codecs if they support inband FEC.
+      return -1;
+    }
     channels_[channel]->codec_fec = enable;
     return 0;
   }
@@ -862,9 +867,12 @@ class FakeWebRtcVoiceEngine
   }
 #ifdef USE_WEBRTC_DEV_BRANCH
   WEBRTC_FUNC(SetREDStatus, (int channel, bool enable, int redPayloadtype)) {
-#else
+    return SetFECStatus(channel, enable, redPayloadtype);
+  }
+#endif
+  // TODO(minyue): remove the below function when transition to SetREDStatus
+  //               is finished.
   WEBRTC_FUNC(SetFECStatus, (int channel, bool enable, int redPayloadtype)) {
-#endif  // USE_WEBRTC_DEV_BRANCH
     WEBRTC_CHECK_CHANNEL(channel);
     channels_[channel]->red = enable;
     channels_[channel]->red_type = redPayloadtype;
@@ -872,9 +880,12 @@ class FakeWebRtcVoiceEngine
   }
 #ifdef USE_WEBRTC_DEV_BRANCH
   WEBRTC_FUNC(GetREDStatus, (int channel, bool& enable, int& redPayloadtype)) {
-#else
+    return GetFECStatus(channel, enable, redPayloadtype);
+  }
+#endif
+  // TODO(minyue): remove the below function when transition to GetREDStatus
+  //               is finished.
   WEBRTC_FUNC(GetFECStatus, (int channel, bool& enable, int& redPayloadtype)) {
-#endif  // USE_WEBRTC_DEV_BRANCH
     WEBRTC_CHECK_CHANNEL(channel);
     enable = channels_[channel]->red;
     redPayloadtype = channels_[channel]->red_type;
