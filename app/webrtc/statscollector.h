@@ -40,8 +40,6 @@
 #include "talk/app/webrtc/statstypes.h"
 #include "talk/app/webrtc/webrtcsession.h"
 
-#include "talk/base/timing.h"
-
 namespace webrtc {
 
 class StatsCollector {
@@ -91,6 +89,11 @@ class StatsCollector {
   bool GetTransportIdFromProxy(const std::string& proxy,
                                std::string* transport_id);
 
+  // Method used by the unittest to force a update of stats since UpdateStats()
+  // that occur less than kMinGatherStatsPeriod number of ms apart will be
+  // ignored.
+  void ClearUpdateStatsCache();
+
  private:
   bool CopySelectedReports(const std::string& selector, StatsReports* reports);
 
@@ -130,7 +133,6 @@ class StatsCollector {
   // Raw pointer to the session the statistics are gathered from.
   WebRtcSession* session_;
   double stats_gathering_started_;
-  talk_base::Timing timing_;
   cricket::ProxyTransportMap proxy_to_transport_;
 
   typedef std::vector<std::pair<AudioTrackInterface*, uint32> >
