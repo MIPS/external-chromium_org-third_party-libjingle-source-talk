@@ -51,6 +51,7 @@
 #include "talk/media/base/videocapturer.h"
 #include "talk/media/base/videorenderer.h"
 #include "talk/media/devices/filevideocapturer.h"
+#include "talk/media/webrtc/constants.h"
 #include "talk/media/webrtc/webrtcpassthroughrender.h"
 #include "talk/media/webrtc/webrtctexturevideoframe.h"
 #include "talk/media/webrtc/webrtcvideocapturer.h"
@@ -66,23 +67,25 @@
 
 namespace cricket {
 
+// Constants defined in talk/media/webrtc/constants.h
+// TODO(pbos): Move these to a separate constants.cc file.
+const int kVideoMtu = 1200;
+const int kVideoRtpBufferSize = 65536;
+
+const char kVp8CodecName[] = "VP8";
+
+const int kDefaultFramerate = 30;
+const int kMinVideoBitrate = 50;
+const int kStartVideoBitrate = 300;
+const int kMaxVideoBitrate = 2000;
+
+const int kCpuMonitorPeriodMs = 2000;  // 2 seconds.
+
 
 static const int kDefaultLogSeverity = talk_base::LS_WARNING;
 
-static const int kMinVideoBitrate = 50;
-static const int kStartVideoBitrate = 300;
-static const int kMaxVideoBitrate = 2000;
-
 // Controlled by exp, try a super low minimum bitrate for poor connections.
 static const int kLowerMinBitrate = 30;
-
-static const int kVideoMtu = 1200;
-
-static const int kVideoRtpBufferSize = 65536;
-
-static const char kVp8PayloadName[] = "VP8";
-static const char kRedPayloadName[] = "red";
-static const char kFecPayloadName[] = "ulpfec";
 
 static const int kDefaultNumberOfTemporalLayers = 1;  // 1:1
 
@@ -128,8 +131,6 @@ static int SeverityToFilter(int severity) {
   }
   return filter;
 }
-
-static const int kCpuMonitorPeriodMs = 2000;  // 2 seconds.
 
 static const bool kNotSending = false;
 
@@ -210,9 +211,7 @@ class WebRtcRenderAdapter : public webrtc::ExternalRenderer {
   virtual int DeliverFrame(unsigned char* buffer,
                            int buffer_size,
                            uint32_t rtp_time_stamp,
-#ifdef USE_WEBRTC_DEV_BRANCH
                            int64_t ntp_time_ms,
-#endif
                            int64_t render_time,
                            void* handle) {
     talk_base::CritScope cs(&crit_);
@@ -225,11 +224,9 @@ class WebRtcRenderAdapter : public webrtc::ExternalRenderer {
     int64 elapsed_time_ms =
         (rtp_ts_wraparound_handler_.Unwrap(rtp_time_stamp) -
          capture_start_rtp_time_stamp_) / kVideoCodecClockratekHz;
-#ifdef USE_WEBRTC_DEV_BRANCH
     if (ntp_time_ms > 0) {
       capture_start_ntp_time_ms_ = ntp_time_ms - elapsed_time_ms;
     }
-#endif
     frame_rate_tracker_.Update(1);
     if (renderer_ == NULL) {
       return 0;
@@ -585,9 +582,9 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
         video_capturer_(NULL),
         encoder_observer_(channel_id),
         external_capture_(external_capture),
-        capturer_updated_(false),
         interval_(0),
-        cpu_monitor_(cpu_monitor) {
+        cpu_monitor_(cpu_monitor),
+        old_adaptation_changes_(0) {
   }
 
   int channel_id() const { return channel_id_; }
@@ -624,11 +621,16 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
   int64 interval() { return interval_; }
 
   int CurrentAdaptReason() const {
-    const CoordinatedVideoAdapter* adapter = video_adapter();
-    if (!adapter) {
+    if (!video_adapter()) {
       return CoordinatedVideoAdapter::ADAPTREASON_NONE;
     }
     return video_adapter()->adapt_reason();
+  }
+  int AdaptChanges() const {
+    if (!video_adapter()) {
+      return old_adaptation_changes_;
+    }
+    return old_adaptation_changes_ + video_adapter()->adaptation_changes();
   }
 
   StreamParams* stream_params() { return stream_params_.get(); }
@@ -654,6 +656,8 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
 
     CoordinatedVideoAdapter* old_video_adapter = video_adapter();
     if (old_video_adapter) {
+      // Get adaptation changes from old video adapter.
+      old_adaptation_changes_ += old_video_adapter->adaptation_changes();
       // Disconnect signals from old video adapter.
       SignalCpuAdaptationUnable.disconnect(old_video_adapter);
       if (cpu_monitor_) {
@@ -661,7 +665,6 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
       }
     }
 
-    capturer_updated_ = true;
     video_capturer_ = video_capturer;
 
     vie_wrapper->base()->RegisterCpuOveruseObserver(channel_id_, NULL);
@@ -816,50 +819,27 @@ class WebRtcVideoChannelSendInfo : public sigslot::has_slots<> {
 
   WebRtcLocalStreamInfo local_stream_info_;
 
-  bool capturer_updated_;
-
   int64 interval_;
 
   talk_base::CpuMonitor* cpu_monitor_;
   talk_base::scoped_ptr<WebRtcOveruseObserver> overuse_observer_;
+
+  int old_adaptation_changes_;
 
   VideoOptions video_options_;
 };
 
 const WebRtcVideoEngine::VideoCodecPref
     WebRtcVideoEngine::kVideoCodecPrefs[] = {
-    {kVp8PayloadName, 100, -1, 0},
-    {kRedPayloadName, 116, -1, 1},
-    {kFecPayloadName, 117, -1, 2},
+    {kVp8CodecName, 100, -1, 0},
+    {kRedCodecName, 116, -1, 1},
+    {kUlpfecCodecName, 117, -1, 2},
     {kRtxCodecName, 96, 100, 3},
 };
 
-// The formats are sorted by the descending order of width. We use the order to
-// find the next format for CPU and bandwidth adaptation.
-const VideoFormatPod WebRtcVideoEngine::kVideoFormats[] = {
-  {1280, 800, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {1280, 720, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {960, 600, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {960, 540, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {640, 400, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {640, 360, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {640, 480, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {480, 300, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {480, 270, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {480, 360, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {320, 200, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {320, 180, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {320, 240, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {240, 150, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {240, 135, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {240, 180, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {160, 100, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {160, 90, FPS_TO_INTERVAL(30), FOURCC_ANY},
-  {160, 120, FPS_TO_INTERVAL(30), FOURCC_ANY},
-};
-
-const VideoFormatPod WebRtcVideoEngine::kDefaultVideoFormat =
+const VideoFormatPod WebRtcVideoEngine::kDefaultMaxVideoFormat =
   {640, 400, FPS_TO_INTERVAL(30), FOURCC_ANY};
+// TODO(ronghuawu): Change to 640x360.
 
 static void UpdateVideoCodec(const cricket::VideoFormat& video_format,
                              webrtc::VideoCodec* target_codec) {
@@ -963,9 +943,10 @@ void WebRtcVideoEngine::Construct(ViEWrapper* vie_wrapper,
   // by the server with a jec in response to our reported system info.
   VideoCodec max_codec(kVideoCodecPrefs[0].payload_type,
                        kVideoCodecPrefs[0].name,
-                       kDefaultVideoFormat.width,
-                       kDefaultVideoFormat.height,
-                       VideoFormat::IntervalToFps(kDefaultVideoFormat.interval),
+                       kDefaultMaxVideoFormat.width,
+                       kDefaultMaxVideoFormat.height,
+                       VideoFormat::IntervalToFps(
+                           kDefaultMaxVideoFormat.interval),
                        0);
   if (!SetDefaultCodec(max_codec)) {
     LOG(LS_ERROR) << "Failed to initialize list of supported codec types";
@@ -1156,37 +1137,31 @@ int WebRtcVideoEngine::GetLastEngineError() {
 
 // Checks to see whether we comprehend and could receive a particular codec
 bool WebRtcVideoEngine::FindCodec(const VideoCodec& in) {
-  for (int i = 0; i < ARRAY_SIZE(kVideoFormats); ++i) {
-    const VideoFormat fmt(kVideoFormats[i]);
-    if ((in.width == 0 && in.height == 0) ||
-        (fmt.width == in.width && fmt.height == in.height)) {
-      if (encoder_factory_) {
-        const std::vector<WebRtcVideoEncoderFactory::VideoCodec>& codecs =
-            encoder_factory_->codecs();
-        for (size_t j = 0; j < codecs.size(); ++j) {
-          VideoCodec codec(GetExternalVideoPayloadType(static_cast<int>(j)),
-                           codecs[j].name, 0, 0, 0, 0);
-          if (codec.Matches(in))
-            return true;
-        }
-      }
-      for (size_t j = 0; j < ARRAY_SIZE(kVideoCodecPrefs); ++j) {
-        VideoCodec codec(kVideoCodecPrefs[j].payload_type,
-                         kVideoCodecPrefs[j].name, 0, 0, 0, 0);
-        if (codec.Matches(in)) {
-          return true;
-        }
-      }
+  if (encoder_factory_) {
+    const std::vector<WebRtcVideoEncoderFactory::VideoCodec>& codecs =
+        encoder_factory_->codecs();
+    for (size_t j = 0; j < codecs.size(); ++j) {
+      VideoCodec codec(GetExternalVideoPayloadType(static_cast<int>(j)),
+                       codecs[j].name, 0, 0, 0, 0);
+      if (codec.Matches(in))
+        return true;
+    }
+  }
+  for (size_t j = 0; j < ARRAY_SIZE(kVideoCodecPrefs); ++j) {
+    VideoCodec codec(kVideoCodecPrefs[j].payload_type,
+                     kVideoCodecPrefs[j].name, 0, 0, 0, 0);
+    if (codec.Matches(in)) {
+      return true;
     }
   }
   return false;
 }
 
 // Given the requested codec, returns true if we can send that codec type and
-// updates out with the best quality we could send for that codec. If current is
-// not empty, we constrain out so that its aspect ratio matches current's.
+// updates out with the best quality we could send for that codec.
+// TODO(ronghuawu): Remove |current| from the interface.
 bool WebRtcVideoEngine::CanSendCodec(const VideoCodec& requested,
-                                     const VideoCodec& current,
+                                     const VideoCodec& /* current */,
                                      VideoCodec* out) {
   if (!out) {
     return false;
@@ -1219,44 +1194,16 @@ bool WebRtcVideoEngine::CanSendCodec(const VideoCodec& requested,
       return false;
     }
 
-    // Pick the best quality that is within their and our bounds and has the
-    // correct aspect ratio.
-    for (int j = 0; j < ARRAY_SIZE(kVideoFormats); ++j) {
-      const VideoFormat format(kVideoFormats[j]);
-
-      // Skip any format that is larger than the local or remote maximums, or
-      // smaller than the current best match
-      if (format.width > requested.width || format.height > requested.height ||
-          format.width > local_max->width ||
-          (format.width < out->width && format.height < out->height)) {
-        continue;
-      }
-
-      bool better = false;
-
-      // Check any further constraints on this prospective format
-      if (!out->width || !out->height) {
-        // If we don't have any matches yet, this is the best so far.
-        better = true;
-      } else if (current.width && current.height) {
-        // current is set so format must match its ratio exactly.
-        better =
-            (format.width * current.height == format.height * current.width);
-      } else {
-        // Prefer closer aspect ratios i.e
-        // format.aspect - requested.aspect < out.aspect - requested.aspect
-        better = abs(format.width * requested.height * out->height -
-                     requested.width * format.height * out->height) <
-                 abs(out->width * format.height * requested.height -
-                     requested.width * format.height * out->height);
-      }
-
-      if (better) {
-        out->width = format.width;
-        out->height = format.height;
-      }
+    // Reduce the requested size by /= 2 until it's width under
+    // |local_max->width|.
+    out->width = requested.width;
+    out->height = requested.height;
+    while (out->width > local_max->width) {
+      out->width /= 2;
+      out->height /= 2;
     }
-    if (out->width > 0) {
+
+    if (out->width > 0 && out->height > 0) {
       return true;
     }
   }
@@ -1444,7 +1391,7 @@ bool WebRtcVideoEngine::RebuildCodecList(const VideoCodec& in_codec) {
       VideoCodec codec(pref.payload_type, pref.name,
                        in_codec.width, in_codec.height, in_codec.framerate,
                        static_cast<int>(ARRAY_SIZE(kVideoCodecPrefs) - i));
-      if (_stricmp(kVp8PayloadName, codec.name.c_str()) == 0) {
+      if (_stricmp(kVp8CodecName, codec.name.c_str()) == 0) {
         AddDefaultFeedbackParams(&codec);
       }
       if (pref.associated_payload_type != -1) {
@@ -1696,18 +1643,15 @@ bool WebRtcVideoMediaChannel::SetSendCodecs(
   // Match with local video codec list.
   std::vector<webrtc::VideoCodec> send_codecs;
   VideoCodec checked_codec;
-  VideoCodec current;  // defaults to 0x0
-  if (sending_) {
-    ConvertToCricketVideoCodec(*send_codec_, &current);
-  }
+  VideoCodec dummy_current;  // Will be ignored by CanSendCodec.
   std::map<int, int> primary_rtx_pt_mapping;
   bool nack_enabled = nack_enabled_;
   bool remb_enabled = remb_enabled_;
   for (std::vector<VideoCodec>::const_iterator iter = codecs.begin();
       iter != codecs.end(); ++iter) {
-    if (_stricmp(iter->name.c_str(), kRedPayloadName) == 0) {
+    if (_stricmp(iter->name.c_str(), kRedCodecName) == 0) {
       send_red_type_ = iter->id;
-    } else if (_stricmp(iter->name.c_str(), kFecPayloadName) == 0) {
+    } else if (_stricmp(iter->name.c_str(), kUlpfecCodecName) == 0) {
       send_fec_type_ = iter->id;
     } else if (_stricmp(iter->name.c_str(), kRtxCodecName) == 0) {
       int rtx_type = iter->id;
@@ -1715,7 +1659,7 @@ bool WebRtcVideoMediaChannel::SetSendCodecs(
       if (iter->GetParam(kCodecParamAssociatedPayloadType, &rtx_primary_type)) {
         primary_rtx_pt_mapping[rtx_primary_type] = rtx_type;
       }
-    } else if (engine()->CanSendCodec(*iter, current, &checked_codec)) {
+    } else if (engine()->CanSendCodec(*iter, dummy_current, &checked_codec)) {
       webrtc::VideoCodec wcodec;
       if (engine()->ConvertFromCricketVideoCodec(checked_codec, &wcodec)) {
         if (send_codecs.empty()) {
@@ -2505,6 +2449,7 @@ bool WebRtcVideoMediaChannel::GetStats(const StatsOptions& options,
             send_codec_->maxBitrate, kMaxVideoBitrate);
       }
       sinfo.adapt_reason = send_channel->CurrentAdaptReason();
+      sinfo.adapt_changes = send_channel->AdaptChanges();
 
 #ifdef USE_WEBRTC_DEV_BRANCH
       webrtc::CpuOveruseMetrics metrics;
@@ -3260,7 +3205,7 @@ bool WebRtcVideoMediaChannel::SendFrame(
   }
   const VideoFrame* frame_out = frame;
   talk_base::scoped_ptr<VideoFrame> processed_frame;
-  // Disable muting for screencast.
+  // TODO(hellner): Remove the need for disabling mute when screencasting.
   const bool mute = (send_channel->muted() && !is_screencast);
   send_channel->ProcessFrame(*frame_out, mute, processed_frame.use());
   if (processed_frame) {
@@ -3766,7 +3711,6 @@ bool WebRtcVideoMediaChannel::SetSendCodec(
   return true;
 }
 
-
 static std::string ToString(webrtc::VideoCodecComplexity complexity) {
   switch (complexity) {
     case webrtc::kComplexityNormal:
@@ -3871,7 +3815,7 @@ bool WebRtcVideoMediaChannel::SetReceiveCodecs(
         // We currently only support RTX associated with VP8 due to limitations
         // in webrtc where only one RTX payload type can be registered.
         valid_apt = codec_it != pt_to_codec.end() &&
-            _stricmp(codec_it->second->plName, kVp8PayloadName) == 0;
+            _stricmp(codec_it->second->plName, kVp8CodecName) == 0;
       }
       if (!valid_apt) {
         LOG(LS_ERROR) << "The RTX codec isn't associated with a known and "
@@ -4077,6 +4021,7 @@ void WebRtcVideoMediaChannel::MaybeChangeBitrates(
       codec->startBitrate = current_target_bitrate;
     }
   }
+
 }
 
 void WebRtcVideoMediaChannel::OnMessage(talk_base::Message* msg) {

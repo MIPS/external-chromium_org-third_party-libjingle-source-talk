@@ -1217,6 +1217,17 @@ TEST_F(WebRtcVoiceEngineTestFake, SetSendCodecIsacNoFec) {
   EXPECT_TRUE(channel_->SetSendCodecs(codecs));
   EXPECT_FALSE(voe_.GetCodecFEC(channel_num));
 }
+
+// Test the with non-Opus, even if useinbandfec=1, FEC is off.
+TEST_F(WebRtcVoiceEngineTestFake, SetSendCodecIsacWithParamNoFec) {
+  EXPECT_TRUE(SetupEngine());
+  int channel_num = voe_.GetLastChannel();
+  std::vector<cricket::AudioCodec> codecs;
+  codecs.push_back(kIsacCodec);
+  codecs[0].params["useinbandfec"] = "1";
+  EXPECT_TRUE(channel_->SetSendCodecs(codecs));
+  EXPECT_FALSE(voe_.GetCodecFEC(channel_num));
+}
 #endif  // USE_WEBRTC_DEV_BRANCH
 
 // Test AudioOptions controls whether opus FEC is supported in codec list.
@@ -1681,11 +1692,9 @@ TEST_F(WebRtcVoiceEngineTestFake, SetSendCodecsBadRED5) {
 TEST_F(WebRtcVoiceEngineTestFake, SendAudioLevelHeaderExtensions) {
   TestSetSendRtpHeaderExtensions(kRtpAudioLevelHeaderExtension);
 }
-#ifdef USE_WEBRTC_DEV_BRANCH
 TEST_F(WebRtcVoiceEngineTestFake, RecvAudioLevelHeaderExtensions) {
   TestSetRecvRtpHeaderExtensions(kRtpAudioLevelHeaderExtension);
 }
-#endif  // USE_WEBRTC_DEV_BRANCH
 
 // Test support for absolute send time header extension.
 TEST_F(WebRtcVoiceEngineTestFake, SendAbsoluteSendTimeHeaderExtensions) {

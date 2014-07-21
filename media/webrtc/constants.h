@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2014, Google Inc.
+ * Copyright 2014 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -24,46 +24,23 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#ifndef TALK_MEDIA_WEBRTC_CONSTANTS_H_
+#define TALK_MEDIA_WEBRTC_CONSTANTS_H_
 
-#if !defined(__has_feature) || !__has_feature(objc_arc)
-#error "This file requires ARC support."
-#endif
+namespace cricket {
 
-#import "RTCStatsReport+Internal.h"
+extern const int kVideoMtu;
+extern const int kVideoRtpBufferSize;
 
-#import "RTCPair.h"
+extern const char kVp8CodecName[];
 
-@implementation RTCStatsReport
+extern const int kDefaultFramerate;
+extern const int kMinVideoBitrate;
+extern const int kStartVideoBitrate;
+extern const int kMaxVideoBitrate;
 
-- (NSString*)description {
-  NSString* format = @"id: %@, type: %@, timestamp: %f, values: %@";
-  return [NSString stringWithFormat:format,
-                                    self.reportId,
-                                    self.type,
-                                    self.timestamp,
-                                    self.values];
-}
+extern const int kCpuMonitorPeriodMs;
 
-@end
+}  // namespace cricket
 
-@implementation RTCStatsReport (Internal)
-
-- (instancetype)initWithStatsReport:(const webrtc::StatsReport&)statsReport {
-  if (self = [super init]) {
-    _reportId = @(statsReport.id.c_str());
-    _type = @(statsReport.type.c_str());
-    _timestamp = statsReport.timestamp;
-    NSMutableArray* values =
-        [NSMutableArray arrayWithCapacity:statsReport.values.size()];
-    webrtc::StatsReport::Values::const_iterator it = statsReport.values.begin();
-    for (; it != statsReport.values.end(); ++it) {
-      RTCPair* pair = [[RTCPair alloc] initWithKey:@(it->display_name())
-                                             value:@(it->value.c_str())];
-      [values addObject:pair];
-    }
-    _values = values;
-  }
-  return self;
-}
-
-@end
+#endif  // TALK_MEDIA_WEBRTC_CONSTANTS_H_

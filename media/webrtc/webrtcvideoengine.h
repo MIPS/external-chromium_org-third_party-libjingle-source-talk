@@ -45,7 +45,6 @@
 #error "Bogus include."
 #endif
 
-
 namespace webrtc {
 class VideoCaptureModule;
 class VideoDecoder;
@@ -190,7 +189,7 @@ class WebRtcVideoEngine : public sigslot::has_slots<>,
 
   static const VideoCodecPref kVideoCodecPrefs[];
   static const VideoFormatPod kVideoFormats[];
-  static const VideoFormatPod kDefaultVideoFormat;
+  static const VideoFormatPod kDefaultMaxVideoFormat;
 
   void Construct(ViEWrapper* vie_wrapper,
                  ViETraceWrapper* tracing,
@@ -389,7 +388,6 @@ class WebRtcVideoMediaChannel : public talk_base::MessageHandler,
     return options_.conference_mode.GetWithDefaultIfUnset(false);
   }
   bool RemoveCapturer(uint32 ssrc);
-
 
   talk_base::MessageQueue* worker_thread() { return engine_->worker_thread(); }
   void QueueBlackFrame(uint32 ssrc, int64 timestamp, int framerate);
