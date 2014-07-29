@@ -110,6 +110,7 @@
                 'android_java_files': [
                   'app/webrtc/java/android/org/webrtc/VideoRendererGui.java',
                   'app/webrtc/java/src/org/webrtc/MediaCodecVideoEncoder.java',
+                  'app/webrtc/java/src/org/webrtc/MediaCodecVideoDecoder.java',
                   '<(webrtc_modules_dir)/audio_device/android/java/src/org/webrtc/voiceengine/AudioManagerAndroid.java',
                   '<(webrtc_modules_dir)/video_capture/android/java/src/org/webrtc/videoengine/VideoCaptureAndroid.java',
                   '<(webrtc_modules_dir)/video_capture/android/java/src/org/webrtc/videoengine/VideoCaptureDeviceInfoAndroid.java',
@@ -1020,13 +1021,6 @@
             # TODO(sjlee) Remove when vp8 is building for iOS.  vp8 pulls in
             # libjpeg which pulls in libyuv which currently disabled.
             '../third_party/libyuv/include',
-          ],
-          'dependencies!': [
-            '<(DEPTH)/third_party/usrsctp/usrsctp.gyp:usrsctplib',
-          ],
-          'sources!': [
-            'media/sctp/sctpdataengine.cc',
-            'media/sctp/sctpdataengine.h',
           ],
         }],
         ['OS=="android"', {

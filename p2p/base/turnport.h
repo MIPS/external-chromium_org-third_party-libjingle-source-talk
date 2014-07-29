@@ -56,9 +56,11 @@ class TurnPort : public Port {
                           const std::string& username,  // ice username.
                           const std::string& password,  // ice password.
                           const ProtocolAddress& server_address,
-                          const RelayCredentials& credentials) {
+                          const RelayCredentials& credentials,
+                          int server_priority) {
     return new TurnPort(thread, factory, network, socket,
-                    username, password, server_address, credentials);
+                        username, password, server_address,
+                        credentials, server_priority);
   }
 
   static TurnPort* Create(talk_base::Thread* thread,
@@ -69,9 +71,11 @@ class TurnPort : public Port {
                           const std::string& username,  // ice username.
                           const std::string& password,  // ice password.
                           const ProtocolAddress& server_address,
-                          const RelayCredentials& credentials) {
+                          const RelayCredentials& credentials,
+                          int server_priority) {
     return new TurnPort(thread, factory, network, ip, min_port, max_port,
-                        username, password, server_address, credentials);
+                        username, password, server_address, credentials,
+                        server_priority);
   }
 
   virtual ~TurnPort();
@@ -113,6 +117,8 @@ class TurnPort : public Port {
   const std::string& hash() const { return hash_; }
   const std::string& nonce() const { return nonce_; }
 
+  int error() const { return error_; }
+
   // Signal with resolved server address.
   // Parameters are port, server address and resolved server address.
   // This signal will be sent only if server address is resolved successfully.
@@ -132,7 +138,8 @@ class TurnPort : public Port {
            const std::string& username,
            const std::string& password,
            const ProtocolAddress& server_address,
-           const RelayCredentials& credentials);
+           const RelayCredentials& credentials,
+           int server_priority);
 
   TurnPort(talk_base::Thread* thread,
            talk_base::PacketSocketFactory* factory,
@@ -142,7 +149,8 @@ class TurnPort : public Port {
            const std::string& username,
            const std::string& password,
            const ProtocolAddress& server_address,
-           const RelayCredentials& credentials);
+           const RelayCredentials& credentials,
+           int server_priority);
 
  private:
   enum { MSG_ERROR = MSG_FIRST_AVAILABLE };
@@ -151,6 +159,8 @@ class TurnPort : public Port {
   typedef std::map<talk_base::Socket::Option, int> SocketOptionsMap;
 
   virtual void OnMessage(talk_base::Message* pmsg);
+
+  bool CreateTurnClientSocket();
 
   void set_nonce(const std::string& nonce) { nonce_ = nonce; }
   void set_realm(const std::string& realm) {
@@ -212,6 +222,9 @@ class TurnPort : public Port {
   EntryList entries_;
 
   bool connected_;
+  // By default the value will be set to 0. This value will be used in
+  // calculating the candidate priority.
+  int server_priority_;
 
   friend class TurnEntry;
   friend class TurnAllocateRequest;
