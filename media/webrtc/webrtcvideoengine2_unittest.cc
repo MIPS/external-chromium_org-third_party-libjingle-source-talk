@@ -28,8 +28,8 @@
 #include <map>
 #include <vector>
 
-#include "talk/base/gunit.h"
-#include "talk/base/stringutils.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/stringutils.h"
 #include "talk/media/base/testutils.h"
 #include "talk/media/base/videoengine_unittest.h"
 #include "talk/media/webrtc/webrtcvideoengine2.h"
@@ -192,7 +192,7 @@ webrtc::VideoCodec FakeCall::GetEmptyVideoCodec() {
 webrtc::VideoCodec FakeCall::GetVideoCodecVp8() {
   webrtc::VideoCodec vp8_codec = GetEmptyVideoCodec();
   vp8_codec.codecType = webrtc::kVideoCodecVP8;
-  talk_base::strcpyn(vp8_codec.plName, ARRAY_SIZE(vp8_codec.plName),
+  rtc::strcpyn(vp8_codec.plName, ARRAY_SIZE(vp8_codec.plName),
       kVp8Codec.name.c_str());
   vp8_codec.plType = kVp8Codec.id;
 
@@ -203,7 +203,7 @@ webrtc::VideoCodec FakeCall::GetVideoCodecVp9() {
   webrtc::VideoCodec vp9_codec = GetEmptyVideoCodec();
   // TODO(pbos): Add a correct codecType when webrtc has one.
   vp9_codec.codecType = webrtc::kVideoCodecVP8;
-  talk_base::strcpyn(vp9_codec.plName, ARRAY_SIZE(vp9_codec.plName),
+  rtc::strcpyn(vp9_codec.plName, ARRAY_SIZE(vp9_codec.plName),
       kVp9Codec.name.c_str());
   vp9_codec.plType = kVp9Codec.id;
 
@@ -339,7 +339,7 @@ class WebRtcVideoEngine2Test : public testing::Test {
 };
 
 TEST_F(WebRtcVideoEngine2Test, CreateChannel) {
-  talk_base::scoped_ptr<VideoMediaChannel> channel(engine_.CreateChannel(NULL));
+  rtc::scoped_ptr<VideoMediaChannel> channel(engine_.CreateChannel(NULL));
   ASSERT_TRUE(channel.get() != NULL) << "Could not create channel.";
   EXPECT_TRUE(factory_.GetFakeChannel(channel.get()) != NULL)
       << "Channel not created through factory.";
@@ -347,7 +347,7 @@ TEST_F(WebRtcVideoEngine2Test, CreateChannel) {
 
 TEST_F(WebRtcVideoEngine2Test, CreateChannelWithVoiceEngine) {
   VoiceMediaChannel* voice_channel = reinterpret_cast<VoiceMediaChannel*>(0x42);
-  talk_base::scoped_ptr<VideoMediaChannel> channel(
+  rtc::scoped_ptr<VideoMediaChannel> channel(
       engine_.CreateChannel(voice_channel));
   ASSERT_TRUE(channel.get() != NULL) << "Could not create channel.";
 
@@ -445,7 +445,7 @@ TEST_F(WebRtcVideoEngine2Test, SupportsAbsoluteSenderTimeHeaderExtension) {
 }
 
 TEST_F(WebRtcVideoEngine2Test, SetSendFailsBeforeSettingCodecs) {
-  talk_base::scoped_ptr<VideoMediaChannel> channel(engine_.CreateChannel(NULL));
+  rtc::scoped_ptr<VideoMediaChannel> channel(engine_.CreateChannel(NULL));
 
   EXPECT_TRUE(channel->AddSendStream(StreamParams::CreateLegacy(123)));
 
@@ -734,7 +734,7 @@ class WebRtcVideoChannel2Test : public WebRtcVideoEngine2Test {
     EXPECT_EQ(webrtc_ext, recv_stream->GetConfig().rtp.extensions[0].name);
   }
 
-  talk_base::scoped_ptr<VideoMediaChannel> channel_;
+  rtc::scoped_ptr<VideoMediaChannel> channel_;
   FakeWebRtcVideoChannel2* fake_channel_;
   uint32 last_ssrc_;
 };
@@ -791,24 +791,6 @@ TEST_F(WebRtcVideoChannel2Test, DISABLED_StartSendBitrate) {
                      kVideoMaxSendBitrateKbps, kVideoMinSendBitrateKbps,
                      kVideoDefaultStartSendBitrateKbps);
 #endif
-}
-
-TEST_F(WebRtcVideoChannel2Test, DISABLED_RtcpEnabled) {
-  // Note(pbos): This is a receiver-side setting, dumbo.
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
-}
-
-TEST_F(WebRtcVideoChannel2Test, DISABLED_KeyFrameRequestEnabled) {
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
-}
-
-TEST_F(WebRtcVideoChannel2Test, RembIsEnabledByDefault) {
-  FakeVideoReceiveStream* stream = AddRecvStream();
-  EXPECT_TRUE(stream->GetConfig().rtp.remb);
-}
-
-TEST_F(WebRtcVideoChannel2Test, DISABLED_RembEnabledOnReceiveChannels) {
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
 }
 
 TEST_F(WebRtcVideoChannel2Test, RecvStreamWithSimAndRtx) {
@@ -1010,12 +992,28 @@ TEST_F(WebRtcVideoChannel2Test, AddRecvStreamOnlyUsesOneReceiveStream) {
   EXPECT_EQ(1u, fake_channel_->GetFakeCall()->GetVideoReceiveStreams().size());
 }
 
-TEST_F(WebRtcVideoChannel2Test, DISABLED_NoRembChangeAfterAddRecvStream) {
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
+TEST_F(WebRtcVideoChannel2Test, RembIsEnabledByDefault) {
+  FakeVideoReceiveStream* stream = AddRecvStream();
+  EXPECT_TRUE(stream->GetConfig().rtp.remb);
 }
 
-TEST_F(WebRtcVideoChannel2Test, DISABLED_RembOnOff) {
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
+TEST_F(WebRtcVideoChannel2Test, RembCanBeEnabledAndDisabled) {
+  FakeVideoReceiveStream* stream = AddRecvStream();
+  EXPECT_TRUE(stream->GetConfig().rtp.remb);
+
+  // Verify that REMB is turned off when codecs without REMB are set.
+  std::vector<VideoCodec> codecs;
+  codecs.push_back(kVp8Codec);
+  EXPECT_TRUE(codecs[0].feedback_params.params().empty());
+  EXPECT_TRUE(channel_->SetRecvCodecs(codecs));
+  stream = fake_channel_->GetFakeCall()->GetVideoReceiveStreams()[0];
+  EXPECT_FALSE(stream->GetConfig().rtp.remb);
+
+  // Verify that REMB is turned on when setting default codecs since the
+  // default codecs have REMB enabled.
+  EXPECT_TRUE(channel_->SetRecvCodecs(engine_.codecs()));
+  stream = fake_channel_->GetFakeCall()->GetVideoReceiveStreams()[0];
+  EXPECT_TRUE(stream->GetConfig().rtp.remb);
 }
 
 TEST_F(WebRtcVideoChannel2Test, NackIsEnabledByDefault) {
@@ -1180,7 +1178,7 @@ TEST_F(WebRtcVideoChannel2Test, DISABLED_MultipleSendStreamsWithOneCapturer) {
   FAIL() << "Not implemented.";  // TODO(pbos): Implement.
 }
 
-TEST_F(WebRtcVideoChannel2Test, DISABLED_DISABLED_SendReceiveBitratesStats) {
+TEST_F(WebRtcVideoChannel2Test, DISABLED_SendReceiveBitratesStats) {
   FAIL() << "Not implemented.";  // TODO(pbos): Implement.
 }
 
@@ -1305,11 +1303,6 @@ TEST_F(WebRtcVideoChannel2Test, SetSendCodecsChangesExistingStreams) {
       ->GetVideoStreams();
   EXPECT_EQ(kVp8Codec360p.width, streams[0].width);
   EXPECT_EQ(kVp8Codec360p.height, streams[0].height);
-}
-
-TEST_F(WebRtcVideoChannel2Test,
-       DISABLED_ConstrainsSetCodecsAccordingToEncoderConfig) {
-  FAIL() << "Not implemented.";  // TODO(pbos): Implement.
 }
 
 TEST_F(WebRtcVideoChannel2Test, SetSendCodecsWithMinMaxBitrate) {

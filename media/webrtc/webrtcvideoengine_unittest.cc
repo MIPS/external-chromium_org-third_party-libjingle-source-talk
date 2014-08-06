@@ -25,11 +25,11 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "talk/base/fakecpumonitor.h"
-#include "talk/base/gunit.h"
-#include "talk/base/logging.h"
-#include "talk/base/scoped_ptr.h"
-#include "talk/base/stream.h"
+#include "webrtc/base/fakecpumonitor.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/logging.h"
+#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/stream.h"
 #include "talk/media/base/constants.h"
 #include "talk/media/base/fakemediaprocessor.h"
 #include "talk/media/base/fakenetworkinterface.h"
@@ -59,6 +59,7 @@ static const cricket::VideoCodec kVP8Codec270p(100, "VP8", 480, 270, 30, 0);
 static const cricket::VideoCodec kVP8Codec180p(100, "VP8", 320, 180, 30, 0);
 
 static const cricket::VideoCodec kVP8Codec(100, "VP8", 640, 400, 30, 0);
+static const cricket::VideoCodec kH264Codec(127, "H264", 640, 400, 30, 0);
 static const cricket::VideoCodec kRedCodec(101, "red", 0, 0, 0, 0);
 static const cricket::VideoCodec kUlpFecCodec(102, "ulpfec", 0, 0, 0, 0);
 static const cricket::VideoCodec* const kVideoCodecs[] = {
@@ -99,8 +100,8 @@ class WebRtcVideoEngineTestFake : public testing::Test,
  public:
   WebRtcVideoEngineTestFake()
       : vie_(kVideoCodecs, ARRAY_SIZE(kVideoCodecs)),
-        cpu_monitor_(new talk_base::FakeCpuMonitor(
-            talk_base::Thread::Current())),
+        cpu_monitor_(new rtc::FakeCpuMonitor(
+            rtc::Thread::Current())),
         engine_(NULL,  // cricket::WebRtcVoiceEngine
                 new FakeViEWrapper(&vie_), cpu_monitor_),
         channel_(NULL),
@@ -108,7 +109,7 @@ class WebRtcVideoEngineTestFake : public testing::Test,
         last_error_(cricket::VideoMediaChannel::ERROR_NONE) {
   }
   bool SetupEngine() {
-    bool result = engine_.Init(talk_base::Thread::Current());
+    bool result = engine_.Init(rtc::Thread::Current());
     if (result) {
       channel_ = engine_.CreateChannel(voice_channel_);
       channel_->SignalMediaError.connect(this,
@@ -252,7 +253,7 @@ class WebRtcVideoEngineTestFake : public testing::Test,
     EXPECT_EQ(100, gcodec.plType);
     EXPECT_EQ(width, gcodec.width);
     EXPECT_EQ(height, gcodec.height);
-    EXPECT_EQ(talk_base::_min(start_bitrate, max_bitrate), gcodec.startBitrate);
+    EXPECT_EQ(rtc::_min(start_bitrate, max_bitrate), gcodec.startBitrate);
     EXPECT_EQ(max_bitrate, gcodec.maxBitrate);
     EXPECT_EQ(min_bitrate, gcodec.minBitrate);
     EXPECT_EQ(fps, gcodec.maxFramerate);
@@ -272,7 +273,7 @@ class WebRtcVideoEngineTestFake : public testing::Test,
   cricket::FakeWebRtcVideoEngine vie_;
   cricket::FakeWebRtcVideoDecoderFactory decoder_factory_;
   cricket::FakeWebRtcVideoEncoderFactory encoder_factory_;
-  talk_base::FakeCpuMonitor* cpu_monitor_;
+  rtc::FakeCpuMonitor* cpu_monitor_;
   cricket::WebRtcVideoEngine engine_;
   cricket::WebRtcVideoMediaChannel* channel_;
   cricket::WebRtcVoiceMediaChannel* voice_channel_;
@@ -307,7 +308,7 @@ class WebRtcVideoMediaChannelTest
 // Tests that our stub library "works".
 TEST_F(WebRtcVideoEngineTestFake, StartupShutdown) {
   EXPECT_FALSE(vie_.IsInited());
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   EXPECT_TRUE(vie_.IsInited());
   engine_.Terminate();
 }
@@ -315,16 +316,16 @@ TEST_F(WebRtcVideoEngineTestFake, StartupShutdown) {
 // Tests that webrtc logs are logged when they should be.
 TEST_F(WebRtcVideoEngineTest, WebRtcShouldLog) {
   const char webrtc_log[] = "WebRtcVideoEngineTest.WebRtcShouldLog";
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
-  engine_.SetLogging(talk_base::LS_INFO, "");
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
+  engine_.SetLogging(rtc::LS_INFO, "");
   std::string str;
-  talk_base::StringStream stream(str);
-  talk_base::LogMessage::AddLogToStream(&stream, talk_base::LS_INFO);
-  EXPECT_EQ(talk_base::LS_INFO, talk_base::LogMessage::GetLogToStream(&stream));
+  rtc::StringStream stream(str);
+  rtc::LogMessage::AddLogToStream(&stream, rtc::LS_INFO);
+  EXPECT_EQ(rtc::LS_INFO, rtc::LogMessage::GetLogToStream(&stream));
   webrtc::Trace::Add(webrtc::kTraceStateInfo, webrtc::kTraceUndefined, 0,
                      webrtc_log);
-  talk_base::Thread::Current()->ProcessMessages(100);
-  talk_base::LogMessage::RemoveLogToStream(&stream);
+  rtc::Thread::Current()->ProcessMessages(100);
+  rtc::LogMessage::RemoveLogToStream(&stream);
   // Access |str| after LogMessage is done with it to avoid data racing.
   EXPECT_NE(std::string::npos, str.find(webrtc_log));
 }
@@ -332,25 +333,25 @@ TEST_F(WebRtcVideoEngineTest, WebRtcShouldLog) {
 // Tests that webrtc logs are not logged when they should't be.
 TEST_F(WebRtcVideoEngineTest, WebRtcShouldNotLog) {
   const char webrtc_log[] = "WebRtcVideoEngineTest.WebRtcShouldNotLog";
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   // WebRTC should never be logged lower than LS_INFO.
-  engine_.SetLogging(talk_base::LS_WARNING, "");
+  engine_.SetLogging(rtc::LS_WARNING, "");
   std::string str;
-  talk_base::StringStream stream(str);
+  rtc::StringStream stream(str);
   // Make sure that WebRTC is not logged, even at lowest severity
-  talk_base::LogMessage::AddLogToStream(&stream, talk_base::LS_SENSITIVE);
-  EXPECT_EQ(talk_base::LS_SENSITIVE,
-            talk_base::LogMessage::GetLogToStream(&stream));
+  rtc::LogMessage::AddLogToStream(&stream, rtc::LS_SENSITIVE);
+  EXPECT_EQ(rtc::LS_SENSITIVE,
+            rtc::LogMessage::GetLogToStream(&stream));
   webrtc::Trace::Add(webrtc::kTraceStateInfo, webrtc::kTraceUndefined, 0,
                      webrtc_log);
-  talk_base::Thread::Current()->ProcessMessages(10);
+  rtc::Thread::Current()->ProcessMessages(10);
   EXPECT_EQ(std::string::npos, str.find(webrtc_log));
-  talk_base::LogMessage::RemoveLogToStream(&stream);
+  rtc::LogMessage::RemoveLogToStream(&stream);
 }
 
 // Tests that we can create and destroy a channel.
 TEST_F(WebRtcVideoEngineTestFake, CreateChannel) {
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   channel_ = engine_.CreateChannel(voice_channel_);
   EXPECT_TRUE(channel_ != NULL);
   EXPECT_EQ(1, engine_.GetNumOfChannels());
@@ -362,7 +363,7 @@ TEST_F(WebRtcVideoEngineTestFake, CreateChannel) {
 // Tests that we properly handle failures in CreateChannel.
 TEST_F(WebRtcVideoEngineTestFake, CreateChannelFail) {
   vie_.set_fail_create_channel(true);
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   channel_ = engine_.CreateChannel(voice_channel_);
   EXPECT_TRUE(channel_ == NULL);
 }
@@ -370,7 +371,7 @@ TEST_F(WebRtcVideoEngineTestFake, CreateChannelFail) {
 // Tests that we properly handle failures in AllocateExternalCaptureDevice.
 TEST_F(WebRtcVideoEngineTestFake, AllocateExternalCaptureDeviceFail) {
   vie_.set_fail_alloc_capturer(true);
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   channel_ = engine_.CreateChannel(voice_channel_);
   EXPECT_TRUE(channel_ == NULL);
 }
@@ -767,9 +768,9 @@ TEST_F(WebRtcVideoEngineTestFake, TestReceiveRtxOneStream) {
   memset(data, 0, sizeof(data));
   data[0] = 0x80;
   data[1] = rtx_codec.id;
-  talk_base::SetBE32(&data[8], kRtxSsrcs1[0]);
-  talk_base::Buffer packet(data, kDataLength);
-  talk_base::PacketTime packet_time;
+  rtc::SetBE32(&data[8], kRtxSsrcs1[0]);
+  rtc::Buffer packet(data, kDataLength);
+  rtc::PacketTime packet_time;
   channel_->OnPacketReceived(&packet, packet_time);
   EXPECT_EQ(rtx_codec.id, vie_.GetLastRecvdPayloadType(channel_num));
 }
@@ -803,9 +804,9 @@ TEST_F(WebRtcVideoEngineTestFake, TestReceiveRtxThreeStreams) {
   memset(data, 0, sizeof(data));
   data[0] = 0x80;
   data[1] = rtx_codec.id;
-  talk_base::SetBE32(&data[8], kRtxSsrcs3[1]);
-  talk_base::Buffer packet(data, kDataLength);
-  talk_base::PacketTime packet_time;
+  rtc::SetBE32(&data[8], kRtxSsrcs3[1]);
+  rtc::Buffer packet(data, kDataLength);
+  rtc::PacketTime packet_time;
   channel_->OnPacketReceived(&packet, packet_time);
   EXPECT_NE(rtx_codec.id, vie_.GetLastRecvdPayloadType(channel_num[0]));
   EXPECT_EQ(rtx_codec.id, vie_.GetLastRecvdPayloadType(channel_num[1]));
@@ -2114,6 +2115,144 @@ TEST_F(WebRtcVideoEngineTestFake, UpdateEncoderCodecsAfterSetFactory) {
   EXPECT_TRUE(channel_->RemoveSendStream(kSsrc));
 }
 
+#ifdef USE_WEBRTC_DEV_BRANCH
+TEST_F(WebRtcVideoEngineTestFake, SetSendCodecsWithExternalH264) {
+  encoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264, "H264");
+  engine_.SetExternalEncoderFactory(&encoder_factory_);
+  EXPECT_TRUE(SetupEngine());
+  int channel_num = vie_.GetLastChannel();
+
+  std::vector<cricket::VideoCodec> codecs;
+  codecs.push_back(kH264Codec);
+  cricket::VideoCodec rtx_codec(96, "rtx", 0, 0, 0, 0);
+  rtx_codec.SetParam("apt", kH264Codec.id);
+  codecs.push_back(rtx_codec);
+  EXPECT_TRUE(channel_->SetSendCodecs(codecs));
+
+  EXPECT_EQ(96, vie_.GetRtxSendPayloadType(channel_num));
+
+  cricket::StreamParams params =
+    cricket::StreamParams::CreateLegacy(kSsrcs1[0]);
+  params.AddFidSsrc(kSsrcs1[0], kRtxSsrcs1[0]);
+  EXPECT_TRUE(channel_->AddSendStream(params));
+
+  EXPECT_EQ(1, vie_.GetNumSsrcs(channel_num));
+  EXPECT_EQ(1, vie_.GetNumRtxSsrcs(channel_num));
+  EXPECT_EQ(static_cast<int>(kRtxSsrcs1[0]), vie_.GetRtxSsrc(channel_num, 0));
+
+  EXPECT_TRUE(vie_.ExternalEncoderRegistered(channel_num, 127));
+  EXPECT_EQ(1, vie_.GetNumExternalEncoderRegistered(channel_num));
+  EXPECT_EQ(1, encoder_factory_.GetNumCreatedEncoders());
+
+  EXPECT_TRUE(channel_->RemoveSendStream(kSsrcs1[0]));
+}
+
+TEST_F(WebRtcVideoEngineTestFake, SetSendCodecsWithVP8AndExternalH264) {
+  encoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264, "H264");
+  engine_.SetExternalEncoderFactory(&encoder_factory_);
+  EXPECT_TRUE(SetupEngine());
+  int channel_num = vie_.GetLastChannel();
+
+  std::vector<cricket::VideoCodec> codecs;
+  codecs.push_back(kH264Codec);
+  cricket::VideoCodec rtx_codec(96, "rtx", 0, 0, 0, 0);
+  rtx_codec.SetParam("apt", kH264Codec.id);
+  codecs.push_back(rtx_codec);
+  codecs.push_back(kVP8Codec);
+  cricket::VideoCodec rtx_codec2(97, "rtx", 0, 0, 0, 0);
+  rtx_codec2.SetParam("apt", kVP8Codec.id);
+  codecs.push_back(rtx_codec2);
+
+  EXPECT_TRUE(channel_->SetSendCodecs(codecs));
+
+  // The first matched codec should be set, i.e., H.264.
+
+  EXPECT_EQ(96, vie_.GetRtxSendPayloadType(channel_num));
+
+  cricket::StreamParams params =
+    cricket::StreamParams::CreateLegacy(kSsrcs1[0]);
+  params.AddFidSsrc(kSsrcs1[0], kRtxSsrcs1[0]);
+  EXPECT_TRUE(channel_->AddSendStream(params));
+
+  EXPECT_EQ(1, vie_.GetNumSsrcs(channel_num));
+  EXPECT_EQ(1, vie_.GetNumRtxSsrcs(channel_num));
+  EXPECT_EQ(static_cast<int>(kRtxSsrcs1[0]), vie_.GetRtxSsrc(channel_num, 0));
+
+  EXPECT_TRUE(vie_.ExternalEncoderRegistered(channel_num, 127));
+  EXPECT_EQ(1, vie_.GetNumExternalEncoderRegistered(channel_num));
+  EXPECT_EQ(1, encoder_factory_.GetNumCreatedEncoders());
+
+  EXPECT_TRUE(channel_->RemoveSendStream(kSsrcs1[0]));
+}
+
+TEST_F(WebRtcVideoEngineTestFake, SetRecvCodecsWithExternalH264) {
+  // WebRtcVideoEngine assumes that if we have encode support for a codec, we
+  // also have decode support. It doesn't support decode only support. Therefore
+  // we here have to register both an encoder and a decoder factory with H264
+  // support, to be able to test the decoder factory.
+  encoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264, "H264");
+  decoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264);
+  EXPECT_TRUE(SetupEngine());
+  engine_.SetExternalEncoderFactory(&encoder_factory_);
+  engine_.SetExternalDecoderFactory(&decoder_factory_);
+  int channel_num = vie_.GetLastChannel();
+
+  std::vector<cricket::VideoCodec> codecs;
+  codecs.push_back(kH264Codec);
+  cricket::VideoCodec rtx_codec(96, "rtx", 0, 0, 0, 0);
+  rtx_codec.SetParam("apt", kH264Codec.id);
+  codecs.push_back(rtx_codec);
+  EXPECT_TRUE(channel_->SetRecvCodecs(codecs));
+
+  EXPECT_EQ(96, vie_.GetRtxRecvPayloadType(channel_num));
+
+  cricket::StreamParams params =
+    cricket::StreamParams::CreateLegacy(kSsrcs1[0]);
+    params.AddFidSsrc(kSsrcs1[0], kRtxSsrcs1[0]);
+  EXPECT_TRUE(channel_->AddRecvStream(params));
+
+  EXPECT_EQ(1, vie_.GetNumSsrcs(channel_num));
+  EXPECT_EQ(static_cast<int>(kRtxSsrcs1[0]),
+            vie_.GetRemoteRtxSsrc(channel_num));
+
+  EXPECT_TRUE(vie_.ExternalDecoderRegistered(channel_num, 127));
+  EXPECT_EQ(1, vie_.GetNumExternalDecoderRegistered(channel_num));
+  EXPECT_EQ(1, decoder_factory_.GetNumCreatedDecoders());
+
+  EXPECT_TRUE(channel_->RemoveRecvStream(kSsrcs1[0]));
+}
+
+TEST_F(WebRtcVideoEngineTestFake, SetRecvCodecsWithVP8AndExternalH264) {
+  encoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264, "H264");
+  decoder_factory_.AddSupportedVideoCodecType(webrtc::kVideoCodecH264);
+  EXPECT_TRUE(SetupEngine());
+  engine_.SetExternalEncoderFactory(&encoder_factory_);
+  engine_.SetExternalDecoderFactory(&decoder_factory_);
+  int channel_num = vie_.GetLastChannel();
+
+  std::vector<cricket::VideoCodec> codecs;
+  cricket::VideoCodec rtx_codec(97, "rtx", 0, 0, 0, 0);
+  rtx_codec.SetParam("apt", kH264Codec.id);
+  codecs.push_back(kH264Codec);
+  codecs.push_back(rtx_codec);
+
+  cricket::VideoCodec rtx_codec2(96, "rtx", 0, 0, 0, 0);
+  rtx_codec2.SetParam("apt", kVP8Codec.id);
+  codecs.push_back(kVP8Codec);
+  codecs.push_back(rtx_codec);
+  // Should fail since WebRTC only supports one RTX codec at a time.
+  EXPECT_FALSE(channel_->SetRecvCodecs(codecs));
+
+  codecs.pop_back();
+
+  // One RTX codec should be fine.
+  EXPECT_TRUE(channel_->SetRecvCodecs(codecs));
+
+  // The RTX payload type should have been set.
+  EXPECT_EQ(rtx_codec.id, vie_.GetRtxRecvPayloadType(channel_num));
+}
+#endif
+
 // Tests that OnReadyToSend will be propagated into ViE.
 TEST_F(WebRtcVideoEngineTestFake, OnReadyToSend) {
   EXPECT_TRUE(SetupEngine());
@@ -2141,10 +2280,10 @@ TEST_F(WebRtcVideoEngineTestFake, CaptureFrameTimestampToNtpTimestamp) {
   EXPECT_TRUE(channel_->SetSendCodecs(codec_list));
   EXPECT_TRUE(channel_->SetSend(true));
 
-  int64 timestamp = time(NULL) * talk_base::kNumNanosecsPerSec;
+  int64 timestamp = time(NULL) * rtc::kNumNanosecsPerSec;
   SendI420ScreencastFrameWithTimestamp(
       kVP8Codec.width, kVP8Codec.height, timestamp);
-  EXPECT_EQ(talk_base::UnixTimestampNanosecsToNtpMillisecs(timestamp),
+  EXPECT_EQ(rtc::UnixTimestampNanosecsToNtpMillisecs(timestamp),
       vie_.GetCaptureLastTimestamp(capture_id));
 
   SendI420ScreencastFrameWithTimestamp(kVP8Codec.width, kVP8Codec.height, 0);
@@ -2219,7 +2358,7 @@ TEST_F(WebRtcVideoEngineTest, RtxCodecHasAptSet) {
 }
 
 TEST_F(WebRtcVideoEngineTest, StartupShutdown) {
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   engine_.Terminate();
 }
 
@@ -2234,7 +2373,7 @@ TEST_F(WebRtcVideoEngineTest, DISABLED_CheckCoInitialize) {
 #endif
 
 TEST_F(WebRtcVideoEngineTest, CreateChannel) {
-  EXPECT_TRUE(engine_.Init(talk_base::Thread::Current()));
+  EXPECT_TRUE(engine_.Init(rtc::Thread::Current()));
   cricket::VideoMediaChannel* channel = engine_.CreateChannel(NULL);
   EXPECT_TRUE(channel != NULL);
   delete channel;
@@ -2383,20 +2522,20 @@ TEST_F(WebRtcVideoMediaChannelTest, AddRemoveCapturerMultipleSources) {
 
 // This test verifies DSCP settings are properly applied on video media channel.
 TEST_F(WebRtcVideoMediaChannelTest, TestSetDscpOptions) {
-  talk_base::scoped_ptr<cricket::FakeNetworkInterface> network_interface(
+  rtc::scoped_ptr<cricket::FakeNetworkInterface> network_interface(
       new cricket::FakeNetworkInterface);
   channel_->SetInterface(network_interface.get());
   cricket::VideoOptions options;
   options.dscp.Set(true);
   EXPECT_TRUE(channel_->SetOptions(options));
-  EXPECT_EQ(talk_base::DSCP_AF41, network_interface->dscp());
+  EXPECT_EQ(rtc::DSCP_AF41, network_interface->dscp());
   // Verify previous value is not modified if dscp option is not set.
   cricket::VideoOptions options1;
   EXPECT_TRUE(channel_->SetOptions(options1));
-  EXPECT_EQ(talk_base::DSCP_AF41, network_interface->dscp());
+  EXPECT_EQ(rtc::DSCP_AF41, network_interface->dscp());
   options.dscp.Set(false);
   EXPECT_TRUE(channel_->SetOptions(options));
-  EXPECT_EQ(talk_base::DSCP_DEFAULT, network_interface->dscp());
+  EXPECT_EQ(rtc::DSCP_DEFAULT, network_interface->dscp());
   channel_->SetInterface(NULL);
 }
 

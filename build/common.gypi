@@ -84,6 +84,7 @@
       ['OS=="linux"', {
         'defines': [
           'LINUX',
+          'WEBRTC_LINUX',
         ],
         'conditions': [
           ['clang==1', {
@@ -102,11 +103,25 @@
       ['OS=="mac"', {
         'defines': [
           'OSX',
+          'WEBRTC_MAC',
+        ],
+      }],
+      ['OS=="win"', {
+        'defines': [
+          'WEBRTC_WIN',
+        ],
+        'msvs_disabled_warnings': [
+          # https://code.google.com/p/chromium/issues/detail?id=372451#c20
+          # Warning 4702 ("Unreachable code") should be re-enabled once
+          # users are updated to VS2013 Update 2.
+            4702,
         ],
       }],
       ['OS=="ios"', {
         'defines': [
           'IOS',
+          'WEBRTC_MAC',
+          'WEBRTC_IOS',
         ],
       }],
       ['OS=="ios" or (OS=="mac" and target_arch!="ia32")', {
@@ -128,6 +143,7 @@
         'defines': [
           'HASH_NAMESPACE=__gnu_cxx',
           'POSIX',
+          'WEBRTC_POSIX',
           'DISABLE_DYNAMIC_CAST',
           # The POSIX standard says we have to define this.
           '_REENTRANT',
