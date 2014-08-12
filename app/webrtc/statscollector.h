@@ -82,9 +82,6 @@ class StatsCollector {
   // Prepare an SSRC report for the given remote ssrc. Used internally.
   StatsReport* PrepareRemoteReport(uint32 ssrc, const std::string& transport,
                                    TrackDirection direction);
-  // Extracts the ID of a Transport belonging to an SSRC. Used internally.
-  bool GetTransportIdFromProxy(const std::string& proxy,
-                               std::string* transport_id);
 
   // Method used by the unittest to force a update of stats since UpdateStats()
   // that occur less than kMinGatherStatsPeriod number of ms apart will be
@@ -96,16 +93,15 @@ class StatsCollector {
 
   // Helper method for AddCertificateReports.
   std::string AddOneCertificateReport(
-      const talk_base::SSLCertificate* cert, const std::string& issuer_id);
+      const rtc::SSLCertificate* cert, const std::string& issuer_id);
 
   // Adds a report for this certificate and every certificate in its chain, and
   // returns the leaf certificate's report's ID.
-  std::string AddCertificateReports(const talk_base::SSLCertificate* cert);
+  std::string AddCertificateReports(const rtc::SSLCertificate* cert);
 
   void ExtractSessionInfo();
   void ExtractVoiceInfo();
   void ExtractVideoInfo(PeerConnectionInterface::StatsOutputLevel level);
-  double GetTimeNow();
   void BuildSsrcToTransportId();
   webrtc::StatsReport* GetOrCreateReport(const std::string& type,
                                          const std::string& id,
