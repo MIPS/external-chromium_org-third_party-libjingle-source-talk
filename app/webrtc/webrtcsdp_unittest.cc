@@ -31,6 +31,9 @@
 
 #include "talk/app/webrtc/jsepsessiondescription.h"
 #include "talk/app/webrtc/webrtcsdp.h"
+#include "talk/media/base/constants.h"
+#include "talk/p2p/base/constants.h"
+#include "talk/session/media/mediasession.h"
 #include "webrtc/base/gunit.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/messagedigest.h"
@@ -38,9 +41,6 @@
 #include "webrtc/base/sslfingerprint.h"
 #include "webrtc/base/stringencode.h"
 #include "webrtc/base/stringutils.h"
-#include "talk/media/base/constants.h"
-#include "talk/p2p/base/constants.h"
-#include "talk/session/media/mediasession.h"
 
 using cricket::AudioCodec;
 using cricket::AudioContentDescription;
@@ -312,6 +312,39 @@ static const char kSdpConferenceString[] =
     "c=IN IP4 0.0.0.0\r\n"
     "a=x-google-flag:conference\r\n";
 
+static const char kSdpSessionString[] =
+    "v=0\r\n"
+    "o=- 18446744069414584320 18446462598732840960 IN IP4 127.0.0.1\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "a=msid-semantic: WMS local_stream\r\n";
+
+static const char kSdpAudioString[] =
+    "m=audio 1 RTP/SAVPF 111\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=rtcp:1 IN IP4 0.0.0.0\r\n"
+    "a=ice-ufrag:ufrag_voice\r\na=ice-pwd:pwd_voice\r\n"
+    "a=mid:audio_content_name\r\n"
+    "a=sendrecv\r\n"
+    "a=rtpmap:111 opus/48000/2\r\n"
+    "a=ssrc:1 cname:stream_1_cname\r\n"
+    "a=ssrc:1 msid:local_stream audio_track_id_1\r\n"
+    "a=ssrc:1 mslabel:local_stream\r\n"
+    "a=ssrc:1 label:audio_track_id_1\r\n";
+
+static const char kSdpVideoString[] =
+    "m=video 1 RTP/SAVPF 120\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=rtcp:1 IN IP4 0.0.0.0\r\n"
+    "a=ice-ufrag:ufrag_video\r\na=ice-pwd:pwd_video\r\n"
+    "a=mid:video_content_name\r\n"
+    "a=sendrecv\r\n"
+    "a=rtpmap:120 VP8/90000\r\n"
+    "a=ssrc:2 cname:stream_1_cname\r\n"
+    "a=ssrc:2 msid:local_stream video_track_id_1\r\n"
+    "a=ssrc:2 mslabel:local_stream\r\n"
+    "a=ssrc:2 label:video_track_id_1\r\n";
+
 
 // One candidate reference string as per W3c spec.
 // candidate:<blah> not a=candidate:<blah>CRLF
@@ -321,6 +354,24 @@ static const char kRawCandidate[] =
 static const char kSdpOneCandidate[] =
     "a=candidate:a0+B/1 1 udp 2130706432 192.168.1.5 1234 typ host "
     "generation 2\r\n";
+
+static const char kSdpTcpActiveCandidate[] =
+    "candidate:a0+B/1 1 tcp 2130706432 192.168.1.5 9 typ host "
+    "tcptype active generation 2";
+static const char kSdpTcpPassiveCandidate[] =
+    "candidate:a0+B/1 1 tcp 2130706432 192.168.1.5 9 typ host "
+    "tcptype passive generation 2";
+static const char kSdpTcpSOCandidate[] =
+    "candidate:a0+B/1 1 tcp 2130706432 192.168.1.5 9 typ host "
+    "tcptype so generation 2";
+static const char kSdpTcpInvalidCandidate[] =
+    "candidate:a0+B/1 1 tcp 2130706432 192.168.1.5 9 typ host "
+    "tcptype invalid generation 2";
+
+// One candidate reference string with IPV6 address.
+static const char kRawIPV6Candidate[] =
+    "candidate:a0+B/1 1 udp 2130706432 "
+    "abcd::abcd::abcd::abcd::abcd::abcd::abcd::abcd 1234 typ host generation 2";
 
 // One candidate reference string.
 static const char kSdpOneCandidateOldFormat[] =
@@ -1578,6 +1629,22 @@ TEST_F(WebRtcSdpTest, SerializeCandidates) {
   EXPECT_EQ(std::string(kRawCandidate), message);
 }
 
+// TODO(mallinath) : Enable this test once WebRTCSdp capable of parsing
+// RFC 6544.
+TEST_F(WebRtcSdpTest, SerializeTcpCandidates) {
+  Candidate candidate(
+      "", ICE_CANDIDATE_COMPONENT_RTP, "tcp",
+      rtc::SocketAddress("192.168.1.5", 9), kCandidatePriority,
+      "", "", LOCAL_PORT_TYPE,
+      "", kCandidateGeneration, kCandidateFoundation1);
+  candidate.set_tcptype(cricket::TCPTYPE_ACTIVE_STR);
+  rtc::scoped_ptr<IceCandidateInterface> jcandidate(
+    new JsepIceCandidate(std::string("audio_content_name"), 0, candidate));
+
+  std::string message = webrtc::SdpSerializeCandidate(*jcandidate);
+  EXPECT_EQ(std::string(kSdpTcpActiveCandidate), message);
+}
+
 TEST_F(WebRtcSdpTest, DeserializeSessionDescription) {
   JsepSessionDescription jdesc(kDummyString);
   // Deserialize
@@ -1856,14 +1923,22 @@ TEST_F(WebRtcSdpTest, DeserializeCandidate) {
   expected.set_generation(0);
   EXPECT_TRUE(jcandidate.candidate().IsEquivalent(expected));
 
-  // Multiple candidate lines.
-  // Only the first line will be deserialized. The rest will be ignored.
-  sdp = kSdpOneCandidate;
-  sdp.append("a=candidate:1 2 tcp 1234 192.168.1.100 5678 typ host\r\n");
+  sdp = kSdpTcpActiveCandidate;
   EXPECT_TRUE(SdpDeserializeCandidate(sdp, &jcandidate));
-  EXPECT_EQ(kDummyMid, jcandidate.sdp_mid());
-  EXPECT_EQ(kDummyIndex, jcandidate.sdp_mline_index());
-  EXPECT_TRUE(jcandidate.candidate().IsEquivalent(jcandidate_->candidate()));
+  // Make a cricket::Candidate equivalent to kSdpTcpCandidate string.
+  Candidate candidate(
+      "", ICE_CANDIDATE_COMPONENT_RTP, "tcp",
+      rtc::SocketAddress("192.168.1.5", 9), kCandidatePriority,
+      "", "", LOCAL_PORT_TYPE,
+      "", kCandidateGeneration, kCandidateFoundation1);
+  rtc::scoped_ptr<IceCandidateInterface> jcandidate_template(
+    new JsepIceCandidate(std::string("audio_content_name"), 0, candidate));
+  EXPECT_TRUE(jcandidate.candidate().IsEquivalent(
+                    jcandidate_template->candidate()));
+  sdp = kSdpTcpPassiveCandidate;
+  EXPECT_TRUE(SdpDeserializeCandidate(sdp, &jcandidate));
+  sdp = kSdpTcpSOCandidate;
+  EXPECT_TRUE(SdpDeserializeCandidate(sdp, &jcandidate));
 }
 
 // This test verifies the deserialization of candidate-attribute
@@ -1895,10 +1970,29 @@ TEST_F(WebRtcSdpTest, DeserializeRawCandidateAttribute) {
   Replace("candidate:", "", &candidate_attribute);
   EXPECT_FALSE(SdpDeserializeCandidate(candidate_attribute, &jcandidate));
 
-  // Concatenating additional candidate. Expecting deserialization to fail.
-  candidate_attribute = kRawCandidate;
-  candidate_attribute.append("candidate:1 2 udp 1234 192.168.1.1 typ host");
+  // Candidate line with IPV6 address.
+  EXPECT_TRUE(SdpDeserializeCandidate(kRawIPV6Candidate, &jcandidate));
+}
+
+// This test verifies that the deserialization of an invalid candidate string
+// fails.
+TEST_F(WebRtcSdpTest, DeserializeInvalidCandidiate) {
+    JsepIceCandidate jcandidate(kDummyMid, kDummyIndex);
+
+  std::string candidate_attribute = kRawCandidate;
+  candidate_attribute.replace(0, 1, "x");
   EXPECT_FALSE(SdpDeserializeCandidate(candidate_attribute, &jcandidate));
+
+  candidate_attribute = kSdpOneCandidate;
+  candidate_attribute.replace(0, 1, "x");
+  EXPECT_FALSE(SdpDeserializeCandidate(candidate_attribute, &jcandidate));
+
+  candidate_attribute = kRawCandidate;
+  candidate_attribute.append("\r\n");
+  candidate_attribute.append(kRawCandidate);
+  EXPECT_FALSE(SdpDeserializeCandidate(candidate_attribute, &jcandidate));
+
+  EXPECT_FALSE(SdpDeserializeCandidate(kSdpTcpInvalidCandidate, &jcandidate));
 }
 
 TEST_F(WebRtcSdpTest, DeserializeSdpWithRtpDataChannels) {
@@ -2350,4 +2444,49 @@ TEST_F(WebRtcSdpTest, DeserializeDtlsSetupAttribute) {
         desc->GetTransportInfoByName("video_content_name");
   EXPECT_EQ(cricket::CONNECTIONROLE_ACTPASS,
             vtinfo->description.connection_role);
+}
+
+// Verifies that the order of the serialized m-lines follows the order of the
+// ContentInfo in SessionDescription, and vise versa for deserialization.
+TEST_F(WebRtcSdpTest, MediaContentOrderMaintainedRoundTrip) {
+  JsepSessionDescription jdesc(kDummyString);
+  const std::string media_content_sdps[3] = {
+    kSdpAudioString,
+    kSdpVideoString,
+    kSdpSctpDataChannelString
+  };
+  const cricket::MediaType media_types[3] = {
+    cricket::MEDIA_TYPE_AUDIO,
+    cricket::MEDIA_TYPE_VIDEO,
+    cricket::MEDIA_TYPE_DATA
+  };
+
+  // Verifies all 6 permutations.
+  for (size_t i = 0; i < 6; ++i) {
+    size_t media_content_in_sdp[3];
+    // The index of the first media content.
+    media_content_in_sdp[0] = i / 2;
+    // The index of the second media content.
+    media_content_in_sdp[1] = (media_content_in_sdp[0] + i % 2 + 1) % 3;
+    // The index of the third media content.
+    media_content_in_sdp[2] = (media_content_in_sdp[0] + (i + 1) % 2 + 1) % 3;
+
+    std::string sdp_string = kSdpSessionString;
+    for (size_t i = 0; i < 3; ++i)
+      sdp_string += media_content_sdps[media_content_in_sdp[i]];
+
+    EXPECT_TRUE(SdpDeserialize(sdp_string, &jdesc));
+    cricket::SessionDescription* desc = jdesc.description();
+    EXPECT_EQ(3u, desc->contents().size());
+
+    for (size_t i = 0; i < 3; ++i) {
+      const cricket::MediaContentDescription* mdesc =
+          static_cast<const cricket::MediaContentDescription*>(
+              desc->contents()[i].description);
+      EXPECT_EQ(media_types[media_content_in_sdp[i]], mdesc->type());
+    }
+
+    std::string serialized_sdp = webrtc::SdpSerialize(jdesc);
+    EXPECT_EQ(sdp_string, serialized_sdp);
+  }
 }

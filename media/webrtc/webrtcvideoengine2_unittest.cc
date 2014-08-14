@@ -28,13 +28,13 @@
 #include <map>
 #include <vector>
 
-#include "webrtc/base/gunit.h"
-#include "webrtc/base/stringutils.h"
 #include "talk/media/base/testutils.h"
 #include "talk/media/base/videoengine_unittest.h"
+#include "talk/media/webrtc/webrtcvideochannelfactory.h"
 #include "talk/media/webrtc/webrtcvideoengine2.h"
 #include "talk/media/webrtc/webrtcvideoengine2_unittest.h"
-#include "talk/media/webrtc/webrtcvideochannelfactory.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/stringutils.h"
 
 namespace {
 static const cricket::VideoCodec kVp8Codec720p(100, "VP8", 1280, 720, 30, 0);
@@ -453,6 +453,13 @@ TEST_F(WebRtcVideoEngine2Test, SetSendFailsBeforeSettingCodecs) {
       << "Channel should not start without codecs.";
   EXPECT_TRUE(channel->SetSend(false))
       << "Channel should be stoppable even without set codecs.";
+}
+
+TEST_F(WebRtcVideoEngine2Test, GetStatsWithoutSendCodecsSetDoesNotCrash) {
+  rtc::scoped_ptr<VideoMediaChannel> channel(engine_.CreateChannel(NULL));
+  EXPECT_TRUE(channel->AddSendStream(StreamParams::CreateLegacy(123)));
+  VideoMediaInfo info;
+  channel->GetStats(&info);
 }
 
 class WebRtcVideoEngine2BaseTest

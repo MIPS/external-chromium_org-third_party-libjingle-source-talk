@@ -33,7 +33,6 @@
 #include <string>
 #include <vector>
 
-#include "webrtc/base/messagequeue.h"
 #include "talk/media/base/mediachannel.h"
 #include "talk/media/base/screencastid.h"
 #include "talk/media/base/streamparams.h"
@@ -45,6 +44,7 @@
 #include "talk/session/media/mediamessages.h"
 #include "talk/session/media/mediasession.h"
 #include "talk/xmpp/jid.h"
+#include "webrtc/base/messagequeue.h"
 
 namespace cricket {
 
@@ -115,7 +115,7 @@ class Call : public rtc::MessageHandler, public sigslot::has_slots<> {
   void PressDTMF(int event);
   bool StartScreencast(Session* session,
                        const std::string& stream_name, uint32 ssrc,
-                       const ScreencastId& screencastid, int fps);
+                       const ScreencastId& screenid, int fps);
   bool StopScreencast(Session* session,
                       const std::string& stream_name, uint32 ssrc);
 

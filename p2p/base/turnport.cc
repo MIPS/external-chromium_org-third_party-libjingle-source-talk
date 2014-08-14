@@ -29,6 +29,8 @@
 
 #include <functional>
 
+#include "talk/p2p/base/common.h"
+#include "talk/p2p/base/stun.h"
 #include "webrtc/base/asyncpacketsocket.h"
 #include "webrtc/base/byteorder.h"
 #include "webrtc/base/common.h"
@@ -36,8 +38,6 @@
 #include "webrtc/base/nethelpers.h"
 #include "webrtc/base/socketaddress.h"
 #include "webrtc/base/stringencode.h"
-#include "talk/p2p/base/common.h"
-#include "talk/p2p/base/stun.h"
 
 namespace cricket {
 
@@ -526,6 +526,7 @@ void TurnPort::OnAllocateSuccess(const rtc::SocketAddress& address,
              address,  // Base address.
              stun_address,  // Related address.
              UDP_PROTOCOL_NAME,
+             "",  // TCP canddiate type, empty for turn candidates.
              RELAY_PORT_TYPE,
              GetRelayPreference(server_address_.proto, server_address_.secure),
              server_priority_,

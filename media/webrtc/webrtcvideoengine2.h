@@ -29,19 +29,19 @@
 #define TALK_MEDIA_WEBRTC_WEBRTCVIDEOENGINE2_H_
 
 #include <map>
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "webrtc/base/cpumonitor.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "talk/media/base/mediaengine.h"
 #include "talk/media/webrtc/webrtcvideochannelfactory.h"
+#include "webrtc/base/cpumonitor.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_video/interface/i420_video_frame.h"
 #include "webrtc/system_wrappers/interface/thread_annotations.h"
 #include "webrtc/transport.h"
+#include "webrtc/video_receive_stream.h"
 #include "webrtc/video_renderer.h"
 #include "webrtc/video_send_stream.h"
-#include "webrtc/video_receive_stream.h"
 
 namespace webrtc {
 class Call;
@@ -81,6 +81,31 @@ struct Device;
 class WebRtcVideoEngine2;
 class WebRtcVideoChannel2;
 class WebRtcVideoRenderer;
+
+class UnsignalledSsrcHandler {
+ public:
+  enum Action {
+    kDropPacket,
+    kDeliverPacket,
+  };
+  virtual Action OnUnsignalledSsrc(VideoMediaChannel* engine,
+                                   uint32_t ssrc) = 0;
+};
+
+// TODO(pbos): Remove, use external handlers only.
+class DefaultUnsignalledSsrcHandler : public UnsignalledSsrcHandler {
+ public:
+  DefaultUnsignalledSsrcHandler();
+  virtual Action OnUnsignalledSsrc(VideoMediaChannel* engine,
+                                   uint32_t ssrc) OVERRIDE;
+
+  VideoRenderer* GetDefaultRenderer() const;
+  void SetDefaultRenderer(VideoMediaChannel* channel, VideoRenderer* renderer);
+
+ private:
+  uint32_t default_recv_ssrc_;
+  VideoRenderer* default_renderer_;
+};
 
 class WebRtcVideoEncoderFactory2 {
  public:
@@ -243,7 +268,7 @@ class WebRtcVideoChannel2 : public rtc::MessageHandler,
 
   // Implemented for VideoMediaChannelTest.
   bool sending() const { return sending_; }
-  uint32 GetDefaultChannelSsrc() { return default_send_ssrc_; }
+  uint32 GetDefaultSendChannelSsrc() { return default_send_ssrc_; }
   bool GetRenderer(uint32 ssrc, VideoRenderer** renderer);
 
  private:
@@ -279,7 +304,7 @@ class WebRtcVideoChannel2 : public rtc::MessageHandler,
     void InputFrame(VideoCapturer* capturer, const VideoFrame* frame);
     bool SetCapturer(VideoCapturer* capturer);
     bool SetVideoFormat(const VideoFormat& format);
-    bool MuteStream(bool mute);
+    void MuteStream(bool mute);
     bool DisconnectCapturer();
 
     void Start();
@@ -386,8 +411,9 @@ class WebRtcVideoChannel2 : public rtc::MessageHandler,
   bool sending_;
   rtc::scoped_ptr<webrtc::Call> call_;
   uint32_t default_send_ssrc_;
-  uint32_t default_recv_ssrc_;
-  VideoRenderer* default_renderer_;
+
+  DefaultUnsignalledSsrcHandler default_unsignalled_ssrc_handler_;
+  UnsignalledSsrcHandler* const unsignalled_ssrc_handler_;
 
   // Using primary-ssrc (first ssrc) as key.
   std::map<uint32, WebRtcVideoSendStream*> send_streams_;
