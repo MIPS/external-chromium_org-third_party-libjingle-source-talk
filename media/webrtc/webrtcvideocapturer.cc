@@ -32,11 +32,12 @@
 #endif
 
 #ifdef HAVE_WEBRTC_VIDEO
+#include "talk/media/webrtc/webrtcvideoframe.h"
+#include "talk/media/webrtc/webrtcvideoframefactory.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/base/timeutils.h"
-#include "talk/media/webrtc/webrtcvideoframe.h"
 
 #include "webrtc/base/win32.h"  // Need this to #include the impl files.
 #include "webrtc/modules/video_capture/include/video_capture_factory.h"
@@ -126,12 +127,14 @@ WebRtcVideoCapturer::WebRtcVideoCapturer()
     : factory_(new WebRtcVcmFactory),
       module_(NULL),
       captured_frames_(0) {
+  set_frame_factory(new WebRtcVideoFrameFactory());
 }
 
 WebRtcVideoCapturer::WebRtcVideoCapturer(WebRtcVcmFactoryInterface* factory)
     : factory_(factory),
       module_(NULL),
       captured_frames_(0) {
+  set_frame_factory(new WebRtcVideoFrameFactory());
 }
 
 WebRtcVideoCapturer::~WebRtcVideoCapturer() {

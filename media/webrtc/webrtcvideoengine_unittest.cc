@@ -25,11 +25,6 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "webrtc/base/fakecpumonitor.h"
-#include "webrtc/base/gunit.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/base/stream.h"
 #include "talk/media/base/constants.h"
 #include "talk/media/base/fakemediaprocessor.h"
 #include "talk/media/base/fakenetworkinterface.h"
@@ -41,6 +36,11 @@
 #include "talk/media/webrtc/fakewebrtcvideocapturemodule.h"
 #include "talk/media/webrtc/fakewebrtcvideoengine.h"
 #include "talk/media/webrtc/fakewebrtcvoiceengine.h"
+#include "webrtc/base/fakecpumonitor.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/logging.h"
+#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/stream.h"
 #include "talk/media/webrtc/webrtcvideocapturer.h"
 #include "talk/media/webrtc/webrtcvideoengine.h"
 #include "talk/media/webrtc/webrtcvideoframe.h"
@@ -2397,6 +2397,9 @@ TEST_F(WebRtcVideoMediaChannelTest, SetRecvCodecsUnsupportedCodec) {
   EXPECT_FALSE(channel_->SetRecvCodecs(codecs));
 }
 
+// Disable for TSan v2, see
+// https://code.google.com/p/webrtc/issues/detail?id=3671 for details.
+#if !defined(THREAD_SANITIZER)
 TEST_F(WebRtcVideoMediaChannelTest, GetRtpSendTimeExtension) {
   // Enable RTP timestamp extension.
   const int id = 12;
@@ -2408,6 +2411,7 @@ TEST_F(WebRtcVideoMediaChannelTest, GetRtpSendTimeExtension) {
   EXPECT_TRUE(channel_->SetSendRtpHeaderExtensions(extensions));
   EXPECT_EQ(id, channel_->GetRtpSendTimeExtnId());
 }
+#endif  // if !defined(THREAD_SANITIZER)
 
 TEST_F(WebRtcVideoMediaChannelTest, SetSend) {
   Base::SetSend();

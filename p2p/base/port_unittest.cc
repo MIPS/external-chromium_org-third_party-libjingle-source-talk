@@ -25,6 +25,16 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "talk/p2p/base/basicpacketsocketfactory.h"
+#include "talk/p2p/base/portproxy.h"
+#include "talk/p2p/base/relayport.h"
+#include "talk/p2p/base/stunport.h"
+#include "talk/p2p/base/tcpport.h"
+#include "talk/p2p/base/testrelayserver.h"
+#include "talk/p2p/base/teststunserver.h"
+#include "talk/p2p/base/testturnserver.h"
+#include "talk/p2p/base/transport.h"
+#include "talk/p2p/base/turnport.h"
 #include "webrtc/base/crc32.h"
 #include "webrtc/base/gunit.h"
 #include "webrtc/base/helpers.h"
@@ -38,16 +48,6 @@
 #include "webrtc/base/stringutils.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/base/virtualsocketserver.h"
-#include "talk/p2p/base/basicpacketsocketfactory.h"
-#include "talk/p2p/base/portproxy.h"
-#include "talk/p2p/base/relayport.h"
-#include "talk/p2p/base/stunport.h"
-#include "talk/p2p/base/tcpport.h"
-#include "talk/p2p/base/testrelayserver.h"
-#include "talk/p2p/base/teststunserver.h"
-#include "talk/p2p/base/testturnserver.h"
-#include "talk/p2p/base/transport.h"
-#include "talk/p2p/base/turnport.h"
 
 using rtc::AsyncPacketSocket;
 using rtc::ByteBuffer;
@@ -146,22 +146,22 @@ class TestPort : public Port {
 
   virtual void PrepareAddress() {
     rtc::SocketAddress addr(ip(), min_port());
-    AddAddress(addr, addr, rtc::SocketAddress(), "udp", Type(),
-               ICE_TYPE_PREFERENCE_HOST, true);
+    AddAddress(addr, addr, rtc::SocketAddress(), "udp", "", Type(),
+               ICE_TYPE_PREFERENCE_HOST, 0, true);
   }
 
   // Exposed for testing candidate building.
   void AddCandidateAddress(const rtc::SocketAddress& addr) {
-    AddAddress(addr, addr, rtc::SocketAddress(), "udp", Type(),
-               type_preference_, false);
+    AddAddress(addr, addr, rtc::SocketAddress(), "udp", "", Type(),
+               type_preference_, 0, false);
   }
   void AddCandidateAddress(const rtc::SocketAddress& addr,
                            const rtc::SocketAddress& base_address,
                            const std::string& type,
                            int type_preference,
                            bool final) {
-    AddAddress(addr, base_address, rtc::SocketAddress(), "udp", type,
-               type_preference, final);
+    AddAddress(addr, base_address, rtc::SocketAddress(), "udp", "", type,
+               type_preference, 0, final);
   }
 
   virtual Connection* CreateConnection(const Candidate& remote_candidate,

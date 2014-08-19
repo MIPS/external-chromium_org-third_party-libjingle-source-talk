@@ -31,10 +31,10 @@
 #include <vector>
 
 #include "talk/app/webrtc/test/fakeconstraints.h"
-#include "webrtc/base/gunit.h"
 #include "talk/media/base/fakemediaengine.h"
 #include "talk/media/base/fakevideorenderer.h"
 #include "talk/media/devices/fakedevicemanager.h"
+#include "webrtc/base/gunit.h"
 
 using webrtc::LocalAudioSource;
 using webrtc::MediaConstraintsInterface;
@@ -118,7 +118,8 @@ TEST(LocalAudioSourceTest, InvalidMandatory) {
       LocalAudioSource::Create(PeerConnectionFactoryInterface::Options(),
                                &constraints);
 
-  EXPECT_EQ(MediaSourceInterface::kEnded, source->state());
+  EXPECT_EQ(MediaSourceInterface::kLive, source->state());
   bool value;
-  EXPECT_FALSE(source->options().highpass_filter.Get(&value));
+  EXPECT_TRUE(source->options().highpass_filter.Get(&value));
+  EXPECT_FALSE(value);
 }

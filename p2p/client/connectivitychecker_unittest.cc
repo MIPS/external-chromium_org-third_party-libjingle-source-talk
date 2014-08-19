@@ -3,16 +3,16 @@
 
 #include <string>
 
-#include "webrtc/base/asynchttprequest.h"
-#include "webrtc/base/gunit.h"
-#include "webrtc/base/fakenetwork.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/base/socketaddress.h"
 #include "talk/p2p/base/basicpacketsocketfactory.h"
 #include "talk/p2p/base/relayport.h"
 #include "talk/p2p/base/stunport.h"
 #include "talk/p2p/client/connectivitychecker.h"
 #include "talk/p2p/client/httpportallocator.h"
+#include "webrtc/base/asynchttprequest.h"
+#include "webrtc/base/fakenetwork.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/socketaddress.h"
 
 namespace cricket {
 
@@ -73,8 +73,8 @@ class FakeStunPort : public StunPort {
 
   // Just set external address and signal that we are done.
   virtual void PrepareAddress() {
-    AddAddress(kExternalAddr, kExternalAddr, rtc::SocketAddress(), "udp",
-               STUN_PORT_TYPE, ICE_TYPE_PREFERENCE_SRFLX, true);
+    AddAddress(kExternalAddr, kExternalAddr, rtc::SocketAddress(), "udp", "",
+               STUN_PORT_TYPE, ICE_TYPE_PREFERENCE_SRFLX, 0, true);
     SignalPortComplete(this);
   }
 };

@@ -29,14 +29,14 @@
 #include <string>
 #include <vector>
 
-#include "webrtc/base/bytebuffer.h"
-#include "webrtc/base/gunit.h"
-#include "webrtc/base/timeutils.h"
 #include "talk/media/base/fakenetworkinterface.h"
 #include "talk/media/base/fakevideocapturer.h"
 #include "talk/media/base/fakevideorenderer.h"
 #include "talk/media/base/mediachannel.h"
 #include "talk/media/base/streamparams.h"
+#include "webrtc/base/bytebuffer.h"
+#include "webrtc/base/gunit.h"
+#include "webrtc/base/timeutils.h"
 
 #ifdef WIN32
 #include <objbase.h>  // NOLINT
@@ -503,14 +503,18 @@ class VideoMediaChannelTest : public testing::Test,
     media_error_ = cricket::VideoMediaChannel::ERROR_NONE;
     channel_->SetRecvCodecs(engine_.codecs());
     EXPECT_TRUE(channel_->AddSendStream(DefaultSendStreamParams()));
-
-    video_capturer_.reset(new cricket::FakeVideoCapturer);
+    video_capturer_.reset(CreateFakeVideoCapturer());
     cricket::VideoFormat format(640, 480,
                                 cricket::VideoFormat::FpsToInterval(30),
                                 cricket::FOURCC_I420);
     EXPECT_EQ(cricket::CS_RUNNING, video_capturer_->Start(format));
     EXPECT_TRUE(channel_->SetCapturer(kSsrc, video_capturer_.get()));
   }
+
+  virtual cricket::FakeVideoCapturer* CreateFakeVideoCapturer() {
+    return new cricket::FakeVideoCapturer();
+  }
+
   // Utility method to setup an additional stream to send and receive video.
   // Used to test send and recv between two streams.
   void SetUpSecondStream() {
@@ -535,7 +539,7 @@ class VideoMediaChannelTest : public testing::Test,
     // We dont add recv for the second stream.
 
     // Setup the receive and renderer for second stream after send.
-    video_capturer_2_.reset(new cricket::FakeVideoCapturer());
+    video_capturer_2_.reset(CreateFakeVideoCapturer());
     cricket::VideoFormat format(640, 480,
                                 cricket::VideoFormat::FpsToInterval(30),
                                 cricket::FOURCC_I420);
@@ -967,7 +971,7 @@ class VideoMediaChannelTest : public testing::Test,
     // Add an additional capturer, and hook up a renderer to receive it.
     cricket::FakeVideoRenderer renderer1;
     rtc::scoped_ptr<cricket::FakeVideoCapturer> capturer(
-      new cricket::FakeVideoCapturer);
+        CreateFakeVideoCapturer());
     capturer->SetScreencast(true);
     const int kTestWidth = 160;
     const int kTestHeight = 120;
@@ -1317,7 +1321,7 @@ class VideoMediaChannelTest : public testing::Test,
     EXPECT_TRUE(SendFrame());
     EXPECT_FRAME_WAIT(1, codec.width, codec.height, kTimeout);
     rtc::scoped_ptr<cricket::FakeVideoCapturer> capturer(
-        new cricket::FakeVideoCapturer);
+        CreateFakeVideoCapturer());
     capturer->SetScreencast(true);
     cricket::VideoFormat format(480, 360,
                                 cricket::VideoFormat::FpsToInterval(30),
@@ -1411,7 +1415,7 @@ class VideoMediaChannelTest : public testing::Test,
     EXPECT_TRUE(channel_->AddSendStream(
         cricket::StreamParams::CreateLegacy(1)));
     rtc::scoped_ptr<cricket::FakeVideoCapturer> capturer1(
-        new cricket::FakeVideoCapturer);
+        CreateFakeVideoCapturer());
     capturer1->SetScreencast(true);
     EXPECT_EQ(cricket::CS_RUNNING, capturer1->Start(capture_format));
     // Set up additional stream 2.
@@ -1423,7 +1427,7 @@ class VideoMediaChannelTest : public testing::Test,
     EXPECT_TRUE(channel_->AddSendStream(
         cricket::StreamParams::CreateLegacy(2)));
     rtc::scoped_ptr<cricket::FakeVideoCapturer> capturer2(
-        new cricket::FakeVideoCapturer);
+        CreateFakeVideoCapturer());
     capturer2->SetScreencast(true);
     EXPECT_EQ(cricket::CS_RUNNING, capturer2->Start(capture_format));
     // State for all the streams.
@@ -1481,7 +1485,7 @@ class VideoMediaChannelTest : public testing::Test,
     // Registering an external capturer is currently the same as screen casting
     // (update the test when this changes).
     rtc::scoped_ptr<cricket::FakeVideoCapturer> capturer(
-        new cricket::FakeVideoCapturer);
+        CreateFakeVideoCapturer());
     capturer->SetScreencast(true);
     const std::vector<cricket::VideoFormat>* formats =
         capturer->GetSupportedFormats();
@@ -1694,6 +1698,14 @@ class VideoMediaChannelTest : public testing::Test,
     EXPECT_EQ_WAIT(frame_count, renderer_.num_rendered_frames(), kTimeout);
     EXPECT_FALSE(renderer_.black_frame());
 
+    // Test that muting an existing stream succeeds even if it's muted.
+    EXPECT_TRUE(channel_->MuteStream(kSsrc, true));
+    EXPECT_TRUE(channel_->MuteStream(kSsrc, true));
+
+    // Test that unmuting an existing stream succeeds even if it's not muted.
+    EXPECT_TRUE(channel_->MuteStream(kSsrc, false));
+    EXPECT_TRUE(channel_->MuteStream(kSsrc, false));
+
     // Test that muting an invalid stream fails.
     EXPECT_FALSE(channel_->MuteStream(kSsrc+1, true));
     EXPECT_TRUE(channel_->SetCapturer(kSsrc, NULL));
@@ -1716,7 +1728,6 @@ class VideoMediaChannelTest : public testing::Test,
     EXPECT_FALSE(channel_->RemoveSendStream(kSsrcs4[kSsrcsSize - 1]));
   }
 
-
   // Two streams one channel tests.
 
   // Tests that we can send and receive frames.
@@ -1738,18 +1749,18 @@ class VideoMediaChannelTest : public testing::Test,
   void TwoStreamsReUseFirstStream(const cricket::VideoCodec& codec) {
     SetUpSecondStream();
     // Default channel used by the first stream.
-    EXPECT_EQ(kSsrc, channel_->GetDefaultChannelSsrc());
+    EXPECT_EQ(kSsrc, channel_->GetDefaultSendChannelSsrc());
     EXPECT_TRUE(channel_->RemoveRecvStream(kSsrc));
     EXPECT_FALSE(channel_->RemoveRecvStream(kSsrc));
     EXPECT_TRUE(channel_->RemoveSendStream(kSsrc));
     EXPECT_FALSE(channel_->RemoveSendStream(kSsrc));
     // Default channel is no longer used by a stream.
-    EXPECT_EQ(0u, channel_->GetDefaultChannelSsrc());
+    EXPECT_EQ(0u, channel_->GetDefaultSendChannelSsrc());
     uint32 new_ssrc = kSsrc + 100;
     EXPECT_TRUE(channel_->AddSendStream(
         cricket::StreamParams::CreateLegacy(new_ssrc)));
     // Re-use default channel.
-    EXPECT_EQ(new_ssrc, channel_->GetDefaultChannelSsrc());
+    EXPECT_EQ(new_ssrc, channel_->GetDefaultSendChannelSsrc());
     EXPECT_FALSE(channel_->AddSendStream(
         cricket::StreamParams::CreateLegacy(new_ssrc)));
     EXPECT_TRUE(channel_->AddRecvStream(
@@ -1762,7 +1773,7 @@ class VideoMediaChannelTest : public testing::Test,
 
     SendAndReceive(codec);
     EXPECT_TRUE(channel_->RemoveSendStream(new_ssrc));
-    EXPECT_EQ(0u, channel_->GetDefaultChannelSsrc());
+    EXPECT_EQ(0u, channel_->GetDefaultSendChannelSsrc());
   }
 
   // Tests that we can send and receive frames with early receive.
