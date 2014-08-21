@@ -40,7 +40,6 @@ class WebRtcVideoDecoderFactory;
 class WebRtcVideoEncoderFactory;
 }
 
-
 #if !defined(LIBPEERCONNECTION_LIB) && \
     !defined(LIBPEERCONNECTION_IMPLEMENTATION)
 
@@ -53,19 +52,49 @@ cricket::MediaEngineInterface* CreateWebRtcMediaEngine(
 WRME_EXPORT
 void DestroyWebRtcMediaEngine(cricket::MediaEngineInterface* media_engine);
 
+#endif  // !defined(LIBPEERCONNECTION_LIB) &&
+        // !defined(LIBPEERCONNECTION_IMPLEMENTATION)
+
 namespace cricket {
 
-class WebRtcMediaEngine : public cricket::MediaEngineInterface {
+class WebRtcMediaEngineFactory {
  public:
-  WebRtcMediaEngine(
+#if !defined(LIBPEERCONNECTION_LIB) && \
+    !defined(LIBPEERCONNECTION_IMPLEMENTATION)
+// A bare Create() isn't supported when using the delegating media
+// engine.
+#else
+  static MediaEngineInterface* Create();
+#endif  // !defined(LIBPEERCONNECTION_LIB) &&
+        // !defined(LIBPEERCONNECTION_IMPLEMENTATION)
+  static MediaEngineInterface* Create(
       webrtc::AudioDeviceModule* adm,
       webrtc::AudioDeviceModule* adm_sc,
-      cricket::WebRtcVideoEncoderFactory* encoder_factory,
-      cricket::WebRtcVideoDecoderFactory* decoder_factory)
+      WebRtcVideoEncoderFactory* encoder_factory,
+      WebRtcVideoDecoderFactory* decoder_factory);
+};
+
+}  // namespace cricket
+
+
+#if !defined(LIBPEERCONNECTION_LIB) && \
+    !defined(LIBPEERCONNECTION_IMPLEMENTATION)
+
+namespace cricket {
+
+// TODO(pthacther): Move this code into webrtcmediaengine.cc once
+// Chrome compiles it.  Right now it relies on only the .h file.
+class DelegatingWebRtcMediaEngine : public cricket::MediaEngineInterface {
+ public:
+  DelegatingWebRtcMediaEngine(
+      webrtc::AudioDeviceModule* adm,
+      webrtc::AudioDeviceModule* adm_sc,
+      WebRtcVideoEncoderFactory* encoder_factory,
+      WebRtcVideoDecoderFactory* decoder_factory)
       : delegate_(CreateWebRtcMediaEngine(
           adm, adm_sc, encoder_factory, decoder_factory)) {
   }
-  virtual ~WebRtcMediaEngine() {
+  virtual ~DelegatingWebRtcMediaEngine() {
     DestroyWebRtcMediaEngine(delegate_);
   }
   virtual bool Init(rtc::Thread* worker_thread) OVERRIDE {
@@ -171,49 +200,16 @@ class WebRtcMediaEngine : public cricket::MediaEngineInterface {
   cricket::MediaEngineInterface* delegate_;
 };
 
-}  // namespace cricket
-#else
-
-#include "talk/media/webrtc/webrtcvideoengine.h"
-#ifdef WEBRTC_CHROMIUM_BUILD
-#include "talk/media/webrtc/webrtcvideoengine2.h"
-#endif
-#include "talk/media/webrtc/webrtcvoiceengine.h"
-
-namespace cricket {
-typedef CompositeMediaEngine<WebRtcVoiceEngine, WebRtcVideoEngine>
-        WebRtcCompositeMediaEngine;
-
-class WebRtcMediaEngine : public WebRtcCompositeMediaEngine {
- public:
-  WebRtcMediaEngine(webrtc::AudioDeviceModule* adm,
-      webrtc::AudioDeviceModule* adm_sc,
-      WebRtcVideoEncoderFactory* encoder_factory,
-      WebRtcVideoDecoderFactory* decoder_factory) {
-    voice_.SetAudioDeviceModule(adm, adm_sc);
-    video_.SetVoiceEngine(&voice_);
-    video_.EnableTimedRender();
-    video_.SetExternalEncoderFactory(encoder_factory);
-    video_.SetExternalDecoderFactory(decoder_factory);
-  }
-};
-
-#ifdef WEBRTC_CHROMIUM_BUILD
-typedef CompositeMediaEngine<WebRtcVoiceEngine, WebRtcVideoEngine2>
-        WebRtcCompositeMediaEngine2;
-
-class WebRtcMediaEngine2 : public WebRtcCompositeMediaEngine2 {
- public:
-  WebRtcMediaEngine2(webrtc::AudioDeviceModule* adm,
-                     webrtc::AudioDeviceModule* adm_sc,
-                     WebRtcVideoEncoderFactory* encoder_factory,
-                     WebRtcVideoDecoderFactory* decoder_factory) {
-    voice_.SetAudioDeviceModule(adm, adm_sc);
-    video_.SetVoiceEngine(&voice_);
-    video_.EnableTimedRender();
-  }
-};
-#endif
+// Used by PeerConnectionFactory to create a media engine passed into
+// ChannelManager.
+MediaEngineInterface* WebRtcMediaEngineFactory::Create(
+    webrtc::AudioDeviceModule* adm,
+    webrtc::AudioDeviceModule* adm_sc,
+    WebRtcVideoEncoderFactory* encoder_factory,
+    WebRtcVideoDecoderFactory* decoder_factory) {
+  return new cricket::DelegatingWebRtcMediaEngine(
+      adm, adm_sc, encoder_factory, decoder_factory);
+}
 
 }  // namespace cricket
 
