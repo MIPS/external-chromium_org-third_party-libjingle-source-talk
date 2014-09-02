@@ -42,6 +42,9 @@
 
 #if !defined(LIBPEERCONNECTION_LIB) && \
     !defined(LIBPEERCONNECTION_IMPLEMENTATION)
+// If you hit this, then you've tried to include this header from outside
+// a shared library.  An instance of this class must only be created from
+// within the library that actually implements it.
 #error "Bogus include."
 #endif
 
@@ -109,13 +112,13 @@ class WebRtcVideoEngine : public sigslot::has_slots<>,
   bool SetDefaultEncoderConfig(const VideoEncoderConfig& config);
   VideoEncoderConfig GetDefaultEncoderConfig() const;
 
-  WebRtcVideoMediaChannel* CreateChannel(VoiceMediaChannel* voice_channel);
+  virtual WebRtcVideoMediaChannel* CreateChannel(
+      VoiceMediaChannel* voice_channel);
 
   const std::vector<VideoCodec>& codecs() const;
   const std::vector<RtpHeaderExtension>& rtp_header_extensions() const;
   void SetLogging(int min_sev, const char* filter);
 
-  bool SetLocalRenderer(VideoRenderer* renderer);
   sigslot::repeater2<VideoCapturer*, CaptureState> SignalCaptureStateChange;
 
   // Set the VoiceEngine for A/V sync. This can only be called before Init.
@@ -215,6 +218,9 @@ class WebRtcVideoEngine : public sigslot::has_slots<>,
   WebRtcVoiceEngine* voice_engine_;
   rtc::scoped_ptr<webrtc::VideoRender> render_module_;
   WebRtcVideoEncoderFactory* encoder_factory_;
+  // If the engine owns the encoder factory, set it here so it will be
+  // deleted.
+  rtc::scoped_ptr<WebRtcVideoEncoderFactory> owned_encoder_factory_;
   WebRtcVideoDecoderFactory* decoder_factory_;
   std::vector<VideoCodec> video_codecs_;
   std::vector<RtpHeaderExtension> rtp_header_extensions_;
@@ -225,9 +231,6 @@ class WebRtcVideoEngine : public sigslot::has_slots<>,
   VideoChannels channels_;
 
   bool capture_started_;
-  int local_renderer_w_;
-  int local_renderer_h_;
-  VideoRenderer* local_renderer_;
 
   rtc::scoped_ptr<rtc::CpuMonitor> cpu_monitor_;
 };
@@ -371,9 +374,10 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
   // Returns the ssrc key corresponding to the provided local SSRC in
   // |ssrc_key|. The return value is true upon success.  If the local
   // ssrc correspond to that of the default channel the key is
-  // kDefaultChannelSsrcKey.
-  // For all other channels the returned ssrc key will be the same as
-  // the local ssrc.
+  // kDefaultChannelSsrcKey.  For all other channels the returned ssrc
+  // key will be the same as the local ssrc.  If a stream has more
+  // than one ssrc, the first (corresponding to
+  // StreamParams::first_ssrc()) is used as the key.
   bool GetSendChannelSsrcKey(uint32 local_ssrc, uint32* ssrc_key);
   WebRtcVideoChannelSendInfo* GetDefaultSendChannel();
   WebRtcVideoChannelSendInfo* GetSendChannelBySsrcKey(uint32 ssrc_key);
@@ -387,8 +391,6 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
   bool IsDefaultChannelId(int channel_id) const {
     return channel_id == default_channel_id_;
   }
-  bool GetDefaultRenderer(VideoRenderer** renderer);
-
   bool DeleteSendChannel(uint32 ssrc_key);
 
   WebRtcVideoChannelRecvInfo* GetDefaultRecvChannel();
@@ -427,6 +429,9 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
 
   bool RemoveRecvStreamInternal(uint32 ssrc);
 
+  // Set the ssrc to use for RTCP receiver reports.
+  void SetReceiverReportSsrc(uint32 ssrc);
+
   // Global state.
   WebRtcVideoEngine* engine_;
   VoiceMediaChannel* voice_channel_;
@@ -454,6 +459,7 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
   std::map<int, int> associated_payload_types_;
   bool render_started_;
   uint32 first_receive_ssrc_;
+  uint32 receiver_report_ssrc_;
   std::vector<RtpHeaderExtension> receive_extensions_;
   int num_unsignalled_recv_channels_;
 

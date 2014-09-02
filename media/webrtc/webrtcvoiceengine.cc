@@ -52,6 +52,7 @@
 #include "webrtc/base/stringutils.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
+#include "webrtc/video_engine/include/vie_network.h"
 
 #ifdef WIN32
 #include <objbase.h>  // NOLINT
@@ -805,30 +806,6 @@ bool WebRtcVoiceEngine::ApplyOptions(const AudioOptions& options_in) {
     }
   }
 
-  bool experimental_ns;
-  if (options.experimental_ns.Get(&experimental_ns)) {
-    webrtc::AudioProcessing* audioproc =
-        voe_wrapper_->base()->audio_processing();
-#ifdef USE_WEBRTC_DEV_BRANCH
-    webrtc::Config config;
-    config.Set<webrtc::ExperimentalNs>(new webrtc::ExperimentalNs(
-        experimental_ns));
-    audioproc->SetExtraOptions(config);
-#else
-    // We check audioproc for the benefit of tests, since FakeWebRtcVoiceEngine
-    // returns NULL on audio_processing().
-    if (audioproc) {
-      if (audioproc->EnableExperimentalNs(experimental_ns) == -1) {
-        LOG_RTCERR1(EnableExperimentalNs, experimental_ns);
-        return false;
-      }
-    } else {
-      LOG(LS_VERBOSE) << "Experimental noise suppression set to "
-                      << experimental_ns;
-    }
-#endif
-  }
-
   bool highpass_filter;
   if (options.highpass_filter.Get(&highpass_filter)) {
     LOG(LS_INFO) << "High pass filter enabled? " << highpass_filter;
@@ -874,20 +851,50 @@ bool WebRtcVoiceEngine::ApplyOptions(const AudioOptions& options_in) {
       StopAecDump();
   }
 
+  webrtc::Config config;
+
+  experimental_aec_.SetFrom(options.experimental_aec);
   bool experimental_aec;
-  if (options.experimental_aec.Get(&experimental_aec)) {
-    LOG(LS_INFO) << "Experimental aec is " << experimental_aec;
-    webrtc::AudioProcessing* audioproc =
-        voe_wrapper_->base()->audio_processing();
+  if (experimental_aec_.Get(&experimental_aec)) {
+    LOG(LS_INFO) << "Experimental aec is enabled? " << experimental_aec;
+    config.Set<webrtc::DelayCorrection>(
+        new webrtc::DelayCorrection(experimental_aec));
+  }
+
+#ifdef USE_WEBRTC_DEV_BRANCH
+  experimental_ns_.SetFrom(options.experimental_ns);
+  bool experimental_ns;
+  if (experimental_ns_.Get(&experimental_ns)) {
+    LOG(LS_INFO) << "Experimental ns is enabled? " << experimental_ns;
+    config.Set<webrtc::ExperimentalNs>(
+        new webrtc::ExperimentalNs(experimental_ns));
+  }
+#endif
+
+  // We check audioproc for the benefit of tests, since FakeWebRtcVoiceEngine
+  // returns NULL on audio_processing().
+  webrtc::AudioProcessing* audioproc = voe_wrapper_->base()->audio_processing();
+  if (audioproc) {
+    audioproc->SetExtraOptions(config);
+  }
+
+#ifndef USE_WEBRTC_DEV_BRANCH
+  bool experimental_ns;
+  if (options.experimental_ns.Get(&experimental_ns)) {
+    LOG(LS_INFO) << "Experimental ns is enabled? " << experimental_ns;
     // We check audioproc for the benefit of tests, since FakeWebRtcVoiceEngine
     // returns NULL on audio_processing().
     if (audioproc) {
-      webrtc::Config config;
-      config.Set<webrtc::DelayCorrection>(
-          new webrtc::DelayCorrection(experimental_aec));
-      audioproc->SetExtraOptions(config);
+      if (audioproc->EnableExperimentalNs(experimental_ns) == -1) {
+        LOG_RTCERR1(EnableExperimentalNs, experimental_ns);
+        return false;
+      }
+    } else {
+      LOG(LS_VERBOSE) << "Experimental noise suppression set to "
+                      << experimental_ns;
     }
   }
+#endif
 
   uint32 recording_sample_rate;
   if (options.recording_sample_rate.Get(&recording_sample_rate)) {
@@ -1759,6 +1766,8 @@ WebRtcVoiceMediaChannel::WebRtcVoiceMediaChannel(WebRtcVoiceEngine *engine)
       typing_noise_detected_(false),
       desired_send_(SEND_NOTHING),
       send_(SEND_NOTHING),
+      shared_bwe_vie_(NULL),
+      shared_bwe_vie_channel_(-1),
       default_receive_ssrc_(0) {
   engine->RegisterChannel(this);
   LOG(LS_VERBOSE) << "WebRtcVoiceMediaChannel::WebRtcVoiceMediaChannel "
@@ -1770,6 +1779,8 @@ WebRtcVoiceMediaChannel::WebRtcVoiceMediaChannel(WebRtcVoiceEngine *engine)
 WebRtcVoiceMediaChannel::~WebRtcVoiceMediaChannel() {
   LOG(LS_VERBOSE) << "WebRtcVoiceMediaChannel::~WebRtcVoiceMediaChannel "
                   << voe_channel();
+  ASSERT(shared_bwe_vie_ == NULL);
+  ASSERT(shared_bwe_vie_channel_ == -1);
 
   // Remove any remaining send streams, the default channel will be deleted
   // later.
@@ -1868,6 +1879,12 @@ bool WebRtcVoiceMediaChannel::SetOptions(const AudioOptions& options) {
     if (MediaChannel::SetDscp(dscp) != 0) {
       LOG(LS_WARNING) << "Failed to set DSCP settings for audio channel";
     }
+  }
+
+  // Force update of Video Engine BWE forwarding to reflect experiment setting.
+  if (!SetupSharedBandwidthEstimation(shared_bwe_vie_,
+                                      shared_bwe_vie_channel_)) {
+    return false;
   }
 
   LOG(LS_INFO) << "Set voice channel options.  Current options: "
@@ -2531,8 +2548,8 @@ bool WebRtcVoiceMediaChannel::AddSendStream(const StreamParams& sp) {
   }
 
   if (engine()->voe()->rtp()->SetRTCP_CNAME(channel, sp.cname.c_str()) == -1) {
-     LOG_RTCERR2(SetRTCP_CNAME, channel, sp.cname);
-     return false;
+    LOG_RTCERR2(SetRTCP_CNAME, channel, sp.cname);
+    return false;
   }
 
   // Set the current codecs to be used for the new channel.
@@ -2604,6 +2621,9 @@ bool WebRtcVoiceMediaChannel::AddRecvStream(const StreamParams& sp) {
     receive_channels_.insert(std::make_pair(
         default_receive_ssrc_,
         new WebRtcVoiceChannelRenderer(voe_channel(), audio_transport)));
+    if (!SetupSharedBweOnChannel(voe_channel())) {
+      return false;
+    }
     return SetPlayout(voe_channel(), playout_);
   }
 
@@ -2688,6 +2708,11 @@ bool WebRtcVoiceMediaChannel::ConfigureRecvChannel(int channel) {
 
   // Set RTP header extension for the new channel.
   if (!SetChannelRecvRtpHeaderExtensions(channel, receive_extensions_)) {
+    return false;
+  }
+
+  // Set up channel to be able to forward incoming packets to video engine BWE.
+  if (!SetupSharedBweOnChannel(channel)) {
     return false;
   }
 
@@ -3060,7 +3085,8 @@ void WebRtcVoiceMediaChannel::OnPacketReceived(
   engine()->voe()->network()->ReceivedRTPPacket(
       which_channel,
       packet->data(),
-      static_cast<unsigned int>(packet->length()));
+      static_cast<unsigned int>(packet->length()),
+      webrtc::PacketTime(packet_time.timestamp, packet_time.not_before));
 }
 
 void WebRtcVoiceMediaChannel::OnRtcpReceived(
@@ -3454,6 +3480,23 @@ int WebRtcVoiceMediaChannel::GetSendChannelNum(uint32 ssrc) {
   return -1;
 }
 
+bool WebRtcVoiceMediaChannel::SetupSharedBandwidthEstimation(
+    webrtc::VideoEngine* vie, int vie_channel) {
+  shared_bwe_vie_ = vie;
+  shared_bwe_vie_channel_ = vie_channel;
+
+  if (!SetupSharedBweOnChannel(voe_channel())) {
+    return false;
+  }
+  for (ChannelMap::iterator it = receive_channels_.begin();
+      it != receive_channels_.end(); ++it) {
+    if (!SetupSharedBweOnChannel(it->second->channel())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool WebRtcVoiceMediaChannel::GetRedSendCodec(const AudioCodec& red_codec,
     const std::vector<AudioCodec>& all_codecs, webrtc::CodecInst* send_codec) {
   // Get the RED encodings from the parameter with no name. This may
@@ -3599,6 +3642,25 @@ bool WebRtcVoiceMediaChannel::SetHeaderExtension(ExtensionSetterFunction setter,
   if ((engine()->voe()->rtp()->*setter)(channel_id, enable, id) != 0) {
     LOG_RTCERR4(*setter, uri, channel_id, enable, id);
     return false;
+  }
+  return true;
+}
+
+bool WebRtcVoiceMediaChannel::SetupSharedBweOnChannel(int voe_channel) {
+  webrtc::ViENetwork* vie_network = NULL;
+  int vie_channel = -1;
+  if (options_.combined_audio_video_bwe.GetWithDefaultIfUnset(false) &&
+      shared_bwe_vie_ != NULL && shared_bwe_vie_channel_ != -1) {
+    vie_network = webrtc::ViENetwork::GetInterface(shared_bwe_vie_);
+    vie_channel = shared_bwe_vie_channel_;
+  }
+  if (engine()->voe()->rtp()->SetVideoEngineBWETarget(voe_channel, vie_network,
+      vie_channel) == -1) {
+    LOG_RTCERR3(SetVideoEngineBWETarget, voe_channel, vie_network, vie_channel);
+    if (vie_network != NULL) {
+      // Don't fail if we're tearing down.
+      return false;
+    }
   }
   return true;
 }

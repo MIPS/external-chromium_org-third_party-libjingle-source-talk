@@ -926,8 +926,6 @@ void WebRtcVideoEngine::Construct(ViEWrapper* vie_wrapper,
   initialized_ = false;
   SetTraceFilter(SeverityToFilter(kDefaultLogSeverity));
   render_module_.reset(new WebRtcPassthroughRender());
-  local_renderer_w_ = local_renderer_h_ = 0;
-  local_renderer_ = NULL;
   capture_started_ = false;
   decoder_factory_ = NULL;
   encoder_factory_ = NULL;
@@ -1107,12 +1105,6 @@ WebRtcVideoMediaChannel* WebRtcVideoEngine::CreateChannel(
     channel = NULL;
   }
   return channel;
-}
-
-bool WebRtcVideoEngine::SetLocalRenderer(VideoRenderer* renderer) {
-  local_renderer_w_ = local_renderer_h_ = 0;
-  local_renderer_ = renderer;
-  return true;
 }
 
 const std::vector<VideoCodec>& WebRtcVideoEngine::codecs() const {
@@ -1568,6 +1560,7 @@ WebRtcVideoMediaChannel::WebRtcVideoMediaChannel(
       remb_enabled_(false),
       render_started_(false),
       first_receive_ssrc_(kSsrcUnset),
+      receiver_report_ssrc_(kSsrcUnset),
       num_unsignalled_recv_channels_(0),
       send_rtx_type_(-1),
       send_red_type_(-1),
@@ -1580,7 +1573,19 @@ WebRtcVideoMediaChannel::WebRtcVideoMediaChannel(
 
 bool WebRtcVideoMediaChannel::Init() {
   const uint32 ssrc_key = 0;
-  return CreateChannel(ssrc_key, MD_SENDRECV, &default_channel_id_);
+  bool result = CreateChannel(ssrc_key, MD_SENDRECV, &default_channel_id_);
+  if (!result) {
+    return false;
+  }
+  if (voice_channel_) {
+    WebRtcVoiceMediaChannel* voice_channel =
+        static_cast<WebRtcVoiceMediaChannel*>(voice_channel_);
+    if (!voice_channel->SetupSharedBandwidthEstimation(
+        engine()->vie()->engine(), default_channel_id_)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 WebRtcVideoMediaChannel::~WebRtcVideoMediaChannel() {
@@ -1588,6 +1593,12 @@ WebRtcVideoMediaChannel::~WebRtcVideoMediaChannel() {
   SetSend(send);
   const bool render = false;
   SetRender(render);
+
+  if (voice_channel_) {
+    WebRtcVoiceMediaChannel* voice_channel =
+        static_cast<WebRtcVoiceMediaChannel*>(voice_channel_);
+    voice_channel->SetupSharedBandwidthEstimation(NULL, -1);
+  }
 
   while (!send_channels_.empty()) {
     if (!DeleteSendChannel(send_channels_.begin()->first)) {
@@ -1883,21 +1894,9 @@ bool WebRtcVideoMediaChannel::AddSendStream(const StreamParams& sp) {
     return false;
   }
 
-  // At this point the channel's local SSRC has been updated. If the channel is
-  // the default channel make sure that all the receive channels are updated as
-  // well. Receive channels have to have the same SSRC as the default channel in
-  // order to send receiver reports with this SSRC.
+  // Use the SSRC of the default channel in the RTCP receiver reports.
   if (IsDefaultChannelId(channel_id)) {
-    for (RecvChannelMap::const_iterator it = recv_channels_.begin();
-         it != recv_channels_.end(); ++it) {
-      WebRtcVideoChannelRecvInfo* info = it->second;
-      int channel_id = info->channel_id();
-      if (engine()->vie()->rtp()->SetLocalSSRC(channel_id,
-                                               sp.first_ssrc()) != 0) {
-        LOG_RTCERR1(SetLocalSSRC, it->first);
-        return false;
-      }
-    }
+    SetReceiverReportSsrc(sp.first_ssrc());
   }
 
   send_channel->set_stream_params(sp);
@@ -2016,25 +2015,6 @@ bool WebRtcVideoMediaChannel::AddRecvStream(const StreamParams& sp) {
 
   if (!MaybeSetRtxSsrc(sp, channel_id)) {
     return false;
-  }
-
-  // Get the default renderer.
-  VideoRenderer* default_renderer = NULL;
-  if (InConferenceMode()) {
-    // The recv_channels_ size start out being 1, so if it is two here
-    // this is the first receive channel created (default_channel_id_
-    // is not used for receiving in a conference call). This means
-    // that the renderer stored inside default_channel_id_ should be
-    // used for the just created channel.
-    if (recv_channels_.size() == 2 && GetDefaultRecvChannel()) {
-      GetDefaultRenderer(&default_renderer);
-    }
-  }
-
-  // The first recv stream reuses the default renderer (if a default renderer
-  // has been set).
-  if (default_renderer) {
-    SetRenderer(sp.first_ssrc(), default_renderer);
   }
 
   LOG(LS_INFO) << "New video stream " << sp.first_ssrc()
@@ -2228,6 +2208,9 @@ bool WebRtcVideoMediaChannel::GetSendChannelSsrcKey(uint32 local_ssrc,
     return true;
   }
   if (!GetSendChannelBySsrcKey(local_ssrc)) {
+    // If a stream has multiple ssrcs, the local_ssrc could be any of
+    // them, but we use the first one (StreamParams::first_ssrc()) as
+    // the key.
     for (SendChannelMap::iterator iter = send_channels_.begin();
          iter != send_channels_.end(); ++iter) {
       WebRtcVideoChannelSendInfo* send_channel = iter->second;
@@ -3139,10 +3122,6 @@ bool WebRtcVideoMediaChannel::GetRenderer(uint32 ssrc,
   return true;
 }
 
-bool WebRtcVideoMediaChannel::GetDefaultRenderer(VideoRenderer** renderer) {
-  return GetRenderer(kDefaultChannelSsrcKey, renderer);
-}
-
 bool WebRtcVideoMediaChannel::GetVideoAdapter(
     uint32 ssrc, CoordinatedVideoAdapter** video_adapter) {
   WebRtcVideoChannelSendInfo* send_channel = GetSendChannelBySsrc(ssrc);
@@ -3431,20 +3410,13 @@ bool WebRtcVideoMediaChannel::ConfigureReceiving(int channel_id,
     return false;
   }
 
-  if (remote_ssrc != kDefaultChannelSsrcKey) {
-    // Use the same SSRC as our default channel
-    // (so the RTCP reports are correct).
-    unsigned int send_ssrc = 0;
-    webrtc::ViERTP_RTCP* rtp = engine()->vie()->rtp();
-    if (rtp->GetLocalSSRC(default_channel_id_, send_ssrc) == -1) {
-      LOG_RTCERR2(GetLocalSSRC, default_channel_id_, send_ssrc);
+  if (receiver_report_ssrc_ != kSsrcUnset) {
+    if (engine()->vie()->rtp()->SetLocalSSRC(
+            channel_id, receiver_report_ssrc_) == -1) {
+      LOG_RTCERR2(SetLocalSSRC, channel_id, receiver_report_ssrc_);
       return false;
     }
-    if (rtp->SetLocalSSRC(channel_id, send_ssrc) == -1) {
-      LOG_RTCERR2(SetLocalSSRC, channel_id, send_ssrc);
-      return false;
-    }
-  }  // Else this is the the default channel and we don't change the SSRC.
+  }
 
   // Disable color enhancement since it is a bit too aggressive.
   if (engine()->vie()->image()->EnableColorEnhancement(channel_id,
@@ -4182,6 +4154,18 @@ void WebRtcVideoMediaChannel::MaybeDisconnectCapturer(VideoCapturer* capturer) {
   if (capturer && GetSendChannelNum(capturer) == 1) {
     capturer->SignalVideoFrame.disconnect(this);
   }
+}
+
+void WebRtcVideoMediaChannel::SetReceiverReportSsrc(uint32 ssrc) {
+  for (RecvChannelMap::const_iterator it = recv_channels_.begin();
+       it != recv_channels_.end(); ++it) {
+    int channel_id = it->second->channel_id();
+    if (engine()->vie()->rtp()->SetLocalSSRC(channel_id, ssrc) != 0) {
+      LOG_RTCERR2(SetLocalSSRC, channel_id, ssrc);
+      ASSERT(false);
+    }
+  }
+  receiver_report_ssrc_ = ssrc;
 }
 
 }  // namespace cricket
