@@ -161,11 +161,6 @@ class WebRtcVideoEngine2 : public sigslot::has_slots<> {
   // Set the VoiceEngine for A/V sync. This can only be called before Init.
   bool SetVoiceEngine(WebRtcVoiceEngine* voice_engine);
 
-  // Functions called by WebRtcVideoChannel2.
-  const VideoFormat& default_codec_format() const {
-    return default_codec_format_;
-  }
-
   bool FindCodec(const VideoCodec& in);
   bool CanSendCodec(const VideoCodec& in,
                     const VideoCodec& current,
@@ -327,7 +322,8 @@ class WebRtcVideoChannel2 : public rtc::MessageHandler,
     void SetCodecAndOptions(const VideoCodecSettings& codec,
                             const VideoOptions& options);
     void RecreateWebRtcStream();
-    void SetDimensions(int width, int height);
+    // When |override_max| is false constrain width/height to codec dimensions.
+    void SetDimensions(int width, int height, bool override_max);
 
     webrtc::Call* const call_;
     WebRtcVideoEncoderFactory2* const encoder_factory_;
