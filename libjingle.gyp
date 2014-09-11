@@ -303,7 +303,7 @@
       'dependencies': [
         '<(DEPTH)/third_party/expat/expat.gyp:expat',
         '<(DEPTH)/third_party/jsoncpp/jsoncpp.gyp:jsoncpp',
-        '<(webrtc_root)/base/base.gyp:webrtc_base',
+        '<(webrtc_root)/base/base.gyp:rtc_base',
       ],
       'export_dependent_settings': [
         '<(DEPTH)/third_party/expat/expat.gyp:expat',
@@ -487,8 +487,6 @@
         'media/base/filemediaengine.cc',
         'media/base/filemediaengine.h',
         'media/base/hybriddataengine.h',
-        'media/base/hybridvideoengine.cc',
-        'media/base/hybridvideoengine.h',
         'media/base/mediachannel.h',
         'media/base/mediacommon.h',
         'media/base/mediaengine.cc',

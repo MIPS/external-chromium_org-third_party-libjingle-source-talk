@@ -508,10 +508,6 @@ void PeerConnection::CreateOffer(CreateSessionDescriptionObserver* observer,
     return;
   }
   RTCOfferAnswerOptions options;
-  // Defaults to receiving audio and not receiving video.
-  options.offer_to_receive_audio =
-      RTCOfferAnswerOptions::kOfferToReceiveMediaTrue;
-  options.offer_to_receive_video = 0;
 
   bool value;
   size_t mandatory_constraints = 0;
@@ -672,7 +668,7 @@ bool PeerConnection::UpdateIce(const RTCConfiguration& config) {
       }
     }
   }
-  return session_->UpdateIce(config.type);
+  return session_->SetIceTransports(config.type);
 }
 
 bool PeerConnection::AddIceCandidate(
