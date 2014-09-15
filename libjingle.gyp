@@ -310,20 +310,6 @@
         '<(DEPTH)/third_party/jsoncpp/jsoncpp.gyp:jsoncpp',
       ],
       'sources': [
-        'xmllite/qname.cc',
-        'xmllite/qname.h',
-        'xmllite/xmlbuilder.cc',
-        'xmllite/xmlbuilder.h',
-        'xmllite/xmlconstants.cc',
-        'xmllite/xmlconstants.h',
-        'xmllite/xmlelement.cc',
-        'xmllite/xmlelement.h',
-        'xmllite/xmlnsstack.cc',
-        'xmllite/xmlnsstack.h',
-        'xmllite/xmlparser.cc',
-        'xmllite/xmlparser.h',
-        'xmllite/xmlprinter.cc',
-        'xmllite/xmlprinter.h',
         'xmpp/asyncsocket.h',
         'xmpp/chatroommodule.h',
         'xmpp/chatroommoduleimpl.cc',
@@ -400,48 +386,6 @@
       ],
     },  # target libjingle
     {
-      'target_name': 'libjingle_sound',
-      'type': 'static_library',
-      'dependencies': [
-        'libjingle',
-      ],
-      'sources': [
-        'sound/automaticallychosensoundsystem.h',
-        'sound/nullsoundsystem.cc',
-        'sound/nullsoundsystem.h',
-        'sound/nullsoundsystemfactory.cc',
-        'sound/nullsoundsystemfactory.h',
-        'sound/platformsoundsystem.cc',
-        'sound/platformsoundsystem.h',
-        'sound/platformsoundsystemfactory.cc',
-        'sound/platformsoundsystemfactory.h',
-        'sound/sounddevicelocator.h',
-        'sound/soundinputstreaminterface.h',
-        'sound/soundoutputstreaminterface.h',
-        'sound/soundsystemfactory.h',
-        'sound/soundsysteminterface.cc',
-        'sound/soundsysteminterface.h',
-        'sound/soundsystemproxy.cc',
-        'sound/soundsystemproxy.h',
-      ],
-      'conditions': [
-        ['OS=="linux"', {
-          'sources': [
-            'sound/alsasoundsystem.cc',
-            'sound/alsasoundsystem.h',
-            'sound/alsasymboltable.cc',
-            'sound/alsasymboltable.h',
-            'sound/linuxsoundsystem.cc',
-            'sound/linuxsoundsystem.h',
-            'sound/pulseaudiosoundsystem.cc',
-            'sound/pulseaudiosoundsystem.h',
-            'sound/pulseaudiosymboltable.cc',
-            'sound/pulseaudiosymboltable.h',
-          ],
-        }],
-      ],
-    },  # target libjingle_sound
-    {
       'target_name': 'libjingle_media',
       'type': 'static_library',
       'include_dirs': [
@@ -461,7 +405,6 @@
         '<(webrtc_root)/system_wrappers/source/system_wrappers.gyp:field_trial_default',
         '<(webrtc_root)/libjingle/xmllite/xmllite.gyp:rtc_xmllite',
         'libjingle',
-        'libjingle_sound',
       ],
       'direct_dependent_settings': {
         'include_dirs': [
@@ -631,6 +574,7 @@
           'link_settings': {
             'xcode_settings': {
               'OTHER_LDFLAGS': [
+                '-weak_framework AVFoundation',
                 '-framework Cocoa',
                 '-framework CoreAudio',
                 '-framework CoreVideo',
