@@ -42,8 +42,7 @@
 #include "webrtc/base/logging.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/call.h"
-// TODO(pbos): Move codecs out of modules (webrtc:3070).
-#include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
+#include "webrtc/video_encoder.h"
 
 #define UNIMPLEMENTED                                                 \
   LOG(LS_ERROR) << "Call to unimplemented function " << __FUNCTION__; \
@@ -54,6 +53,8 @@ namespace cricket {
 // This constant is really an on/off, lower-level configurable NACK history
 // duration hasn't been implemented.
 static const int kNackHistoryMs = 1000;
+
+static const int kDefaultQpMax = 56;
 
 static const int kDefaultRtcpReceiverReportSsrc = 1;
 
@@ -187,7 +188,7 @@ std::vector<webrtc::VideoStream> WebRtcVideoEncoderFactory2::CreateVideoStreams(
   stream.min_bitrate_bps = min_bitrate * 1000;
   stream.target_bitrate_bps = stream.max_bitrate_bps = max_bitrate * 1000;
 
-  int max_qp = 56;
+  int max_qp = kDefaultQpMax;
   codec.GetParam(kCodecParamMaxQuantization, &max_qp);
   stream.max_qp = max_qp;
   std::vector<webrtc::VideoStream> streams;
@@ -200,7 +201,7 @@ webrtc::VideoEncoder* WebRtcVideoEncoderFactory2::CreateVideoEncoder(
     const VideoOptions& options) {
   assert(SupportsCodec(codec));
   if (_stricmp(codec.name.c_str(), kVp8CodecName) == 0) {
-    return webrtc::VP8Encoder::Create();
+    return webrtc::VideoEncoder::Create(webrtc::VideoEncoder::kVp8);
   }
   // This shouldn't happen, we should be able to create encoders for all codecs
   // we support.
@@ -213,14 +214,9 @@ void* WebRtcVideoEncoderFactory2::CreateVideoEncoderSettings(
     const VideoOptions& options) {
   assert(SupportsCodec(codec));
   if (_stricmp(codec.name.c_str(), kVp8CodecName) == 0) {
-    webrtc::VideoCodecVP8* settings = new webrtc::VideoCodecVP8();
-    settings->resilience = webrtc::kResilientStream;
-    settings->numberOfTemporalLayers = 1;
+    webrtc::VideoCodecVP8* settings = new webrtc::VideoCodecVP8(
+        webrtc::VideoEncoder::GetDefaultVp8Settings());
     options.video_noise_reduction.Get(&settings->denoisingOn);
-    settings->errorConcealmentOn = false;
-    settings->automaticResizeOn = false;
-    settings->frameDroppingOn = true;
-    settings->keyFrameInterval = 3000;
     return settings;
   }
   return NULL;
@@ -1563,15 +1559,19 @@ void WebRtcVideoChannel2::WebRtcVideoSendStream::SetDimensions(
     return;
   }
 
-  // TODO(pbos): Fix me, this only affects the last stream!
-  parameters_.video_streams.back().width = width;
-  parameters_.video_streams.back().height = height;
-
   void* encoder_settings = encoder_factory_->CreateVideoEncoderSettings(
       codec_settings.codec, parameters_.options);
 
+  VideoCodec codec = codec_settings.codec;
+  codec.width = width;
+  codec.height = height;
+  std::vector<webrtc::VideoStream> video_streams =
+      encoder_factory_->CreateVideoStreams(codec,
+                                           parameters_.options,
+                                           parameters_.config.rtp.ssrcs.size());
+
   bool stream_reconfigured = stream_->ReconfigureVideoEncoder(
-      parameters_.video_streams, encoder_settings);
+      video_streams, encoder_settings);
 
   encoder_factory_->DestroyVideoEncoderSettings(codec_settings.codec,
                                                 encoder_settings);
@@ -1581,6 +1581,8 @@ void WebRtcVideoChannel2::WebRtcVideoSendStream::SetDimensions(
                     << width << "x" << height;
     return;
   }
+
+  parameters_.video_streams = video_streams;
 }
 
 void WebRtcVideoChannel2::WebRtcVideoSendStream::Start() {
