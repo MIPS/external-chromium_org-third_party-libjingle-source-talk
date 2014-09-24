@@ -310,6 +310,11 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
   virtual int SendPacket(int channel, const void* data, int len);
   virtual int SendRTCPPacket(int channel, const void* data, int len);
 
+  // Checks the current bitrate estimate and modifies the bitrates
+  // accordingly, including converting kAutoBandwidth to the correct defaults.
+  virtual void SanitizeBitrates(
+      int channel_id, webrtc::VideoCodec* video_codec);
+  virtual void LogSendCodecChange(const std::string& reason);
   bool SetPrimaryAndRtxSsrcs(
       int channel_id, int idx, uint32 primary_ssrc,
       const StreamParams& send_params);
@@ -348,22 +353,23 @@ class WebRtcVideoMediaChannel : public rtc::MessageHandler,
   bool SetSendCodec(const webrtc::VideoCodec& codec);
   bool SetSendCodec(WebRtcVideoChannelSendInfo* send_channel,
                     const webrtc::VideoCodec& codec);
-  void LogSendCodecChange(const std::string& reason);
   // Prepares the channel with channel id |info->channel_id()| to receive all
   // codecs in |receive_codecs_| and start receive packets.
   bool SetReceiveCodecs(WebRtcVideoChannelRecvInfo* info);
   // Returns the channel ID that receives the stream with SSRC |ssrc|.
   int GetRecvChannelId(uint32 ssrc);
   bool MaybeSetRtxSsrc(const StreamParams& sp, int channel_id);
+  // Create and register an external endcoder if it's possible to do
+  // so and one isn't already registered.
+  bool MaybeRegisterExternalEncoder(
+      WebRtcVideoChannelSendInfo* send_channel,
+      const webrtc::VideoCodec& codec);
   // Given captured video frame size, checks if we need to reset vie send codec.
   // |reset| is set to whether resetting has happened on vie or not.
   // Returns false on error.
   bool MaybeResetVieSendCodec(WebRtcVideoChannelSendInfo* send_channel,
                               int new_width, int new_height, bool is_screencast,
                               bool* reset);
-  // Checks the current bitrate estimate and modifies the bitrates
-  // accordingly, including converting kAutoBandwidth to the correct defaults.
-  void MaybeChangeBitrates(int channel_id, webrtc::VideoCodec* video_codec);
   // Helper function for starting the sending of media on all channels or
   // |channel_id|. Note that these two function do not change |sending_|.
   bool StartSend();

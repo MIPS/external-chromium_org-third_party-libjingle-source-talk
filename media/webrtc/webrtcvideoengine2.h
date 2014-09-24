@@ -34,10 +34,12 @@
 
 #include "talk/media/base/mediaengine.h"
 #include "talk/media/webrtc/webrtcvideochannelfactory.h"
+#include "talk/media/webrtc/webrtcvideodecoderfactory.h"
+#include "talk/media/webrtc/webrtcvideoencoderfactory.h"
 #include "webrtc/base/cpumonitor.h"
 #include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/thread_annotations.h"
 #include "webrtc/common_video/interface/i420_video_frame.h"
-#include "webrtc/system_wrappers/interface/thread_annotations.h"
 #include "webrtc/transport.h"
 #include "webrtc/video_receive_stream.h"
 #include "webrtc/video_renderer.h"
@@ -65,14 +67,13 @@ class VideoFrame;
 class VideoProcessor;
 class VideoRenderer;
 class VoiceMediaChannel;
-class WebRtcVideoChannel2;
 class WebRtcDecoderObserver;
 class WebRtcEncoderObserver;
 class WebRtcLocalStreamInfo;
 class WebRtcRenderAdapter;
+class WebRtcVideoChannel2;
 class WebRtcVideoChannelRecvInfo;
 class WebRtcVideoChannelSendInfo;
-class WebRtcVideoDecoderFactory;
 class WebRtcVoiceEngine;
 
 struct CapturedFrame;
@@ -119,9 +120,8 @@ class WebRtcVideoEncoderFactory2 {
       const VideoCodec& codec,
       const VideoOptions& options);
 
-  virtual void* CreateVideoEncoderSettings(
-      const VideoCodec& codec,
-      const VideoOptions& options);
+  virtual void* CreateVideoEncoderSettings(const VideoCodec& codec,
+                                           const VideoOptions& options);
 
   virtual void DestroyVideoEncoderSettings(const VideoCodec& codec,
                                            void* encoder_settings);
@@ -130,7 +130,8 @@ class WebRtcVideoEncoderFactory2 {
 };
 
 // WebRtcVideoEngine2 is used for the new native WebRTC Video API (webrtc:1667).
-class WebRtcVideoEngine2 : public sigslot::has_slots<> {
+class WebRtcVideoEngine2 : public sigslot::has_slots<>,
+                           public WebRtcVideoEncoderFactory::Observer {
  public:
   // Creates the WebRtcVideoEngine2 with internal VideoCaptureModule.
   WebRtcVideoEngine2();
@@ -144,7 +145,6 @@ class WebRtcVideoEngine2 : public sigslot::has_slots<> {
   void Terminate();
 
   int GetCapabilities();
-  bool SetOptions(const VideoOptions& options);
   bool SetDefaultEncoderConfig(const VideoEncoderConfig& config);
   VideoEncoderConfig GetDefaultEncoderConfig() const;
 
@@ -153,6 +153,16 @@ class WebRtcVideoEngine2 : public sigslot::has_slots<> {
   const std::vector<VideoCodec>& codecs() const;
   const std::vector<RtpHeaderExtension>& rtp_header_extensions() const;
   void SetLogging(int min_sev, const char* filter);
+
+  // Set a WebRtcVideoDecoderFactory for external decoding. Video engine does
+  // not take the ownership of |decoder_factory|. The caller needs to make sure
+  // that |decoder_factory| outlives the video engine.
+  void SetExternalDecoderFactory(WebRtcVideoDecoderFactory* decoder_factory);
+  // Set a WebRtcVideoEncoderFactory for external encoding. Video engine does
+  // not take the ownership of |encoder_factory|. The caller needs to make sure
+  // that |encoder_factory| outlives the video engine.
+  virtual void SetExternalEncoderFactory(
+      WebRtcVideoEncoderFactory* encoder_factory);
 
   bool EnableTimedRender();
   // This is currently ignored.
@@ -175,6 +185,8 @@ class WebRtcVideoEngine2 : public sigslot::has_slots<> {
   virtual WebRtcVideoEncoderFactory2* GetVideoEncoderFactory();
 
  private:
+  virtual void OnCodecsAvailable() OVERRIDE;
+
   rtc::Thread* worker_thread_;
   WebRtcVoiceEngine* voice_engine_;
   std::vector<VideoCodec> video_codecs_;
@@ -190,6 +202,9 @@ class WebRtcVideoEngine2 : public sigslot::has_slots<> {
   rtc::scoped_ptr<rtc::CpuMonitor> cpu_monitor_;
   WebRtcVideoChannelFactory* channel_factory_;
   WebRtcVideoEncoderFactory2 default_video_encoder_factory_;
+
+  WebRtcVideoDecoderFactory* external_decoder_factory_;
+  WebRtcVideoEncoderFactory* external_encoder_factory_;
 };
 
 class WebRtcVideoChannel2 : public rtc::MessageHandler,
@@ -316,14 +331,16 @@ class WebRtcVideoChannel2 : public rtc::MessageHandler,
       // Sent resolutions + bitrates etc. by the underlying VideoSendStream,
       // typically changes when setting a new resolution or reconfiguring
       // bitrates.
-      std::vector<webrtc::VideoStream> video_streams;
+      webrtc::VideoEncoderConfig encoder_config;
     };
 
     void SetCodecAndOptions(const VideoCodecSettings& codec,
-                            const VideoOptions& options);
-    void RecreateWebRtcStream();
+                            const VideoOptions& options)
+        EXCLUSIVE_LOCKS_REQUIRED(lock_);
+    void RecreateWebRtcStream() EXCLUSIVE_LOCKS_REQUIRED(lock_);
     // When |override_max| is false constrain width/height to codec dimensions.
-    void SetDimensions(int width, int height, bool override_max);
+    void SetDimensions(int width, int height, bool override_max)
+        EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
     webrtc::Call* const call_;
     WebRtcVideoEncoderFactory2* const encoder_factory_;

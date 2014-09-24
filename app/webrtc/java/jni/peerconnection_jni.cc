@@ -1210,9 +1210,6 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
 #define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// Set to false to switch HW video decoder back to byte buffer output.
-#define HW_DECODER_USE_SURFACE true
-
 // Color formats supported by encoder - should mirror supportedColorList
 // from MediaCodecVideoEncoder.java
 enum COLOR_FORMATTYPE {
@@ -2054,15 +2051,18 @@ int MediaCodecVideoDecoder::SetAndroidObjects(JNIEnv* jni,
   if (render_egl_context_) {
     jni->DeleteGlobalRef(render_egl_context_);
   }
-  render_egl_context_ = jni->NewGlobalRef(render_egl_context);
-  ALOGD("VideoDecoder EGL context set");
+  if (IsNull(jni, render_egl_context)) {
+    render_egl_context_ = NULL;
+  } else {
+    render_egl_context_ = jni->NewGlobalRef(render_egl_context);
+  }
+  ALOGD("VideoDecoder EGL context set.");
   return 0;
 }
 
 MediaCodecVideoDecoder::MediaCodecVideoDecoder(JNIEnv* jni)
   : key_frame_required_(true),
     inited_(false),
-    use_surface_(HW_DECODER_USE_SURFACE),
     codec_thread_(new Thread()),
     j_media_codec_video_decoder_class_(
         jni,
@@ -2127,6 +2127,9 @@ MediaCodecVideoDecoder::MediaCodecVideoDecoder(JNIEnv* jni)
       jni, j_decoder_output_buffer_info_class, "presentationTimestampUs", "J");
 
   CHECK_EXCEPTION(jni) << "MediaCodecVideoDecoder ctor failed";
+  use_surface_ = true;
+  if (render_egl_context_ == NULL)
+    use_surface_ = false;
   memset(&codec_, 0, sizeof(codec_));
 }
 
@@ -2393,7 +2396,7 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     return true;
   }
 
-  // Extract data from Java DecoderOutputBufferInfo.
+  // Extract output buffer info from Java DecoderOutputBufferInfo.
   int output_buffer_index =
       GetIntField(jni, j_decoder_output_buffer_info, j_info_index_field_);
   if (output_buffer_index < 0) {
@@ -2407,15 +2410,6 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
       GetIntField(jni, j_decoder_output_buffer_info, j_info_size_field_);
   CHECK_EXCEPTION(jni);
 
-  // Extract data from Java ByteBuffer.
-  jobjectArray output_buffers = reinterpret_cast<jobjectArray>(GetObjectField(
-      jni, *j_media_codec_video_decoder_, j_output_buffers_field_));
-  jobject output_buffer =
-      jni->GetObjectArrayElement(output_buffers, output_buffer_index);
-  uint8_t* payload =
-      reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(output_buffer));
-  CHECK_EXCEPTION(jni);
-  payload += output_buffer_offset;
   // Get decoded video frame properties.
   int color_format = GetIntField(jni, *j_media_codec_video_decoder_,
       j_color_format_field_);
@@ -2426,27 +2420,25 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
       j_slice_height_field_);
   int texture_id = GetIntField(jni, *j_media_codec_video_decoder_,
       j_textureID_field_);
-  if (!use_surface_ && output_buffer_size < width * height * 3 / 2) {
-    ALOGE("Insufficient output buffer size: %d", output_buffer_size);
-    Reset();
-    return false;
-  }
 
-  // Get frame timestamps from a queue.
-  int32_t timestamp = timestamps_.front();
-  timestamps_.erase(timestamps_.begin());
-  int64_t ntp_time_ms = ntp_times_ms_.front();
-  ntp_times_ms_.erase(ntp_times_ms_.begin());
-  int64_t frame_decoding_time_ms = GetCurrentTimeMs() -
-      frame_rtc_times_ms_.front();
-  frame_rtc_times_ms_.erase(frame_rtc_times_ms_.begin());
-
-  ALOGV("Decoder frame out # %d. %d x %d. %d x %d. Color: 0x%x. Size: %d."
-      " DecTime: %lld", frames_decoded_, width, height, stride, slice_height,
-      color_format, output_buffer_size, frame_decoding_time_ms);
-
-  // Create yuv420 frame.
+  // Extract data from Java ByteBuffer and create output yuv420 frame -
+  // for non surface decoding only.
   if (!use_surface_) {
+    if (output_buffer_size < width * height * 3 / 2) {
+      ALOGE("Insufficient output buffer size: %d", output_buffer_size);
+      Reset();
+      return false;
+    }
+    jobjectArray output_buffers = reinterpret_cast<jobjectArray>(GetObjectField(
+        jni, *j_media_codec_video_decoder_, j_output_buffers_field_));
+    jobject output_buffer =
+        jni->GetObjectArrayElement(output_buffers, output_buffer_index);
+    uint8_t* payload = reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(
+        output_buffer));
+    CHECK_EXCEPTION(jni);
+    payload += output_buffer_offset;
+
+    // Create yuv420 frame.
     if (color_format == COLOR_FormatYUV420Planar) {
       decoded_image_.CreateFrame(
           stride * slice_height, payload,
@@ -2471,11 +2463,25 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     }
   }
 
+  // Get frame timestamps from a queue.
+  int32_t timestamp = timestamps_.front();
+  timestamps_.erase(timestamps_.begin());
+  int64_t ntp_time_ms = ntp_times_ms_.front();
+  ntp_times_ms_.erase(ntp_times_ms_.begin());
+  int64_t frame_decoding_time_ms = GetCurrentTimeMs() -
+      frame_rtc_times_ms_.front();
+  frame_rtc_times_ms_.erase(frame_rtc_times_ms_.begin());
+
+  ALOGV("Decoder frame out # %d. %d x %d. %d x %d. Color: 0x%x. Size: %d."
+      " DecTime: %lld", frames_decoded_, width, height, stride, slice_height,
+      color_format, output_buffer_size, frame_decoding_time_ms);
+
   // Return output buffer back to codec.
-  bool success = jni->CallBooleanMethod(*j_media_codec_video_decoder_,
-                                   j_release_output_buffer_method_,
-                                   output_buffer_index,
-                                   use_surface_);
+  bool success = jni->CallBooleanMethod(
+      *j_media_codec_video_decoder_,
+      j_release_output_buffer_method_,
+      output_buffer_index,
+      use_surface_);
   CHECK_EXCEPTION(jni);
   if (!success) {
     ALOGE("releaseOutputBuffer error");
@@ -2686,12 +2692,12 @@ JOW(void, Logging_nativeEnableTracing)(
   std::string path = JavaToStdString(jni, j_path);
   if (nativeLevels != webrtc::kTraceNone) {
     webrtc::Trace::set_level_filter(nativeLevels);
-#ifdef ANDROID
+#if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
     if (path != "logcat:") {
 #endif
       CHECK_EQ(0, webrtc::Trace::SetTraceFile(path.c_str(), false))
           << "SetTraceFile failed";
-#ifdef ANDROID
+#if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
     } else {
       // Intentionally leak this to avoid needing to reason about its lifecycle.
       // It keeps no state and functions only as a dispatch point.

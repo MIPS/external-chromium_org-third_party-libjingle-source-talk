@@ -1612,12 +1612,6 @@ WebRtcVideoMediaChannel::~WebRtcVideoMediaChannel() {
   const bool render = false;
   SetRender(render);
 
-  if (voice_channel_) {
-    WebRtcVoiceMediaChannel* voice_channel =
-        static_cast<WebRtcVoiceMediaChannel*>(voice_channel_);
-    voice_channel->SetupSharedBandwidthEstimation(NULL, -1);
-  }
-
   while (!send_channels_.empty()) {
     if (!DeleteSendChannel(send_channels_.begin()->first)) {
       LOG(LS_ERROR) << "Unable to delete channel with ssrc key "
@@ -1778,6 +1772,35 @@ bool WebRtcVideoMediaChannel::SetSendCodecs(
 
   LogSendCodecChange("SetSendCodecs()");
 
+  return true;
+}
+
+bool WebRtcVideoMediaChannel::MaybeRegisterExternalEncoder(
+    WebRtcVideoChannelSendInfo* send_channel,
+    const webrtc::VideoCodec& codec) {
+  // Codec type not supported or encoder already registered, so
+  // nothing to do.
+  if (!engine()->IsExternalEncoderCodecType(codec.codecType)
+      || send_channel->IsEncoderRegistered(codec.plType)) {
+    return true;
+  }
+
+  webrtc::VideoEncoder* encoder =
+      engine()->CreateExternalEncoder(codec.codecType);
+  if (!encoder) {
+    // No encoder factor, so nothing to do.
+    return true;
+  }
+
+  const int channel_id = send_channel->channel_id();
+  if (engine()->vie()->ext_codec()->RegisterExternalSendCodec(
+          channel_id, codec.plType, encoder, false) != 0) {
+    LOG_RTCERR2(RegisterExternalSendCodec, channel_id, codec.plName);
+    engine()->DestroyExternalEncoder(encoder);
+    return false;
+  }
+
+  send_channel->RegisterEncoder(codec.plType, encoder);
   return true;
 }
 
@@ -2890,7 +2913,7 @@ bool WebRtcVideoMediaChannel::SetStartSendBandwidth(int bps) {
   }
 
   // On success, SetSendCodec() will reset |send_start_bitrate_| to |bps/1000|,
-  // by calling MaybeChangeBitrates.  That method will also clamp the
+  // by calling SanitizeBitrates.  That method will also clamp the
   // start bitrate between min and max, consistent with the override behavior
   // in SetMaxSendBandwidth.
   webrtc::VideoCodec new_codec = *send_codec_;
@@ -3639,21 +3662,7 @@ bool WebRtcVideoMediaChannel::SetSendCodec(
     target_codec.codecSpecific.VP8.denoisingOn = enable_denoising;
   }
 
-  // Register external encoder if codec type is supported by encoder factory.
-  if (engine()->IsExternalEncoderCodecType(codec.codecType) &&
-      !send_channel->IsEncoderRegistered(target_codec.plType)) {
-    webrtc::VideoEncoder* encoder =
-        engine()->CreateExternalEncoder(codec.codecType);
-    if (encoder) {
-      if (engine()->vie()->ext_codec()->RegisterExternalSendCodec(
-          channel_id, target_codec.plType, encoder, false) == 0) {
-        send_channel->RegisterEncoder(target_codec.plType, encoder);
-      } else {
-        LOG_RTCERR2(RegisterExternalSendCodec, channel_id, target_codec.plName);
-        engine()->DestroyExternalEncoder(encoder);
-      }
-    }
-  }
+  MaybeRegisterExternalEncoder(send_channel, target_codec);
 
   // Resolution and framerate may vary for different send channels.
   const VideoFormat& video_format = send_channel->video_format();
@@ -3665,7 +3674,7 @@ bool WebRtcVideoMediaChannel::SetSendCodec(
                  << "for ssrc: " << ssrc << ".";
   } else {
     StreamParams* send_params = send_channel->stream_params();
-    MaybeChangeBitrates(channel_id, &target_codec);
+    SanitizeBitrates(channel_id, &target_codec);
     webrtc::VideoCodec current_codec;
     if (!engine()->vie()->codec()->GetSendCodec(channel_id, current_codec)) {
       // Compare against existing configured send codec.
@@ -3952,7 +3961,7 @@ bool WebRtcVideoMediaChannel::MaybeResetVieSendCodec(
       vie_codec.codecSpecific.VP8.denoisingOn = enable_denoising;
       vie_codec.codecSpecific.VP8.frameDroppingOn = vp8_frame_dropping;
     }
-    MaybeChangeBitrates(channel_id, &vie_codec);
+    SanitizeBitrates(channel_id, &vie_codec);
 
     if (engine()->vie()->codec()->SetSendCodec(channel_id, vie_codec) != 0) {
       LOG_RTCERR1(SetSendCodec, channel_id);
@@ -3990,7 +3999,7 @@ bool WebRtcVideoMediaChannel::MaybeResetVieSendCodec(
   return true;
 }
 
-void WebRtcVideoMediaChannel::MaybeChangeBitrates(
+void WebRtcVideoMediaChannel::SanitizeBitrates(
   int channel_id, webrtc::VideoCodec* codec) {
   codec->minBitrate = GetBitrate(codec->minBitrate, kMinVideoBitrate);
   codec->startBitrate = GetBitrate(codec->startBitrate, kStartVideoBitrate);
@@ -4027,7 +4036,6 @@ void WebRtcVideoMediaChannel::MaybeChangeBitrates(
       codec->startBitrate = current_target_bitrate;
     }
   }
-
 }
 
 void WebRtcVideoMediaChannel::OnMessage(rtc::Message* msg) {
