@@ -50,7 +50,6 @@ class WebRtcMediaEngine :
       WebRtcVideoDecoderFactory* decoder_factory) {
     voice_.SetAudioDeviceModule(adm, adm_sc);
     video_.SetVoiceEngine(&voice_);
-    video_.EnableTimedRender();
     video_.SetExternalEncoderFactory(encoder_factory);
     video_.SetExternalDecoderFactory(decoder_factory);
   }
@@ -65,8 +64,9 @@ class WebRtcMediaEngine2 :
                      WebRtcVideoEncoderFactory* encoder_factory,
                      WebRtcVideoDecoderFactory* decoder_factory) {
     voice_.SetAudioDeviceModule(adm, adm_sc);
+    video_.SetExternalDecoderFactory(decoder_factory);
+    video_.SetExternalEncoderFactory(encoder_factory);
     video_.SetVoiceEngine(&voice_);
-    video_.EnableTimedRender();
   }
 };
 #endif  // WEBRTC_CHROMIUM_BUILD
@@ -85,7 +85,6 @@ cricket::MediaEngineInterface* CreateWebRtcMediaEngine(
         adm, adm_sc, encoder_factory, decoder_factory);
   }
 #endif // WEBRTC_CHROMIUM_BUILD
-  // This is just to get a diff to run pulse.
   return new cricket::WebRtcMediaEngine(
       adm, adm_sc, encoder_factory, decoder_factory);
 }
